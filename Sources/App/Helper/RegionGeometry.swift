@@ -189,11 +189,11 @@ enum RegionGeometry {
         let invDy: Double
     }
 
-    private struct GeoJSONFeatureCollection: Codable {
+    private struct GeoJSONFeatureCollection: Decodable {
         let features: [GeoJSONFeature]
     }
 
-    private struct GeoJSONFeature: Codable {
+    private struct GeoJSONFeature: Decodable {
         let geometry: GeoJSONGeometry
     }
 
