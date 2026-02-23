@@ -1132,7 +1132,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, ecmwf, ifsHres, ukmoGlobal, ukmoUk].compacted())
             }
             // For Canada, use GEM models based on exact boundary plus relaxed non-border inclusion.
-            if RegionGeometry.isInCanadaRelaxed(lat: lat, lon: lon) {
+            if RegionGeometry.isInCanada(lat: lat, lon: lon) {
                 let gemProbabilities = try await ProbabilityReader.makeGemReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let gemReaders = try await GemMixer(domains: [.gem_global, .gem_regional, .gem_hrdps_continental, .gem_hrdps_west], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.reader.map { $0 as any GenericReaderProtocol } ?? []
                 return [gfsProbabilites, gemProbabilities, gfs, icon] + gemReaders
