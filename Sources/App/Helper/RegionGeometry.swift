@@ -58,15 +58,8 @@ enum RegionGeometry {
 
     /// Canada check for model routing.
     /// Uses exact boundary polygon as the authoritative check.
-    /// Falls back to simple envelope if boundary fails to load.
     static func isInCanada(lat: Float, lon: Float) -> Bool {
-        // Exact boundary check (handles all valid Canadian points including coast/islands)
-        if isInCanadaBoundary(lat: lat, lon: lon) {
-            return true
-        }
-        
-        // Fallback: rough envelope (only if boundary unavailable)
-        return isInRectangle(lat: lat, lon: lon, latitude: 41..<84, longitude: -141.5..<(-52.0))
+        return isInCanadaBoundary(lat: lat, lon: lon)
     }
 
     private static let canadaBoundary: CanadaBoundary? = loadCanadaBoundary()
