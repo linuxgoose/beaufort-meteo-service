@@ -58,17 +58,21 @@ enum RegionGeometry {
 
     /// Canada check for model routing.
     /// Uses exact boundary polygon as the authoritative check.
+    /// Falls back to simple envelope if boundary fails to load.
     static func isInCanada(lat: Float, lon: Float) -> Bool {
         // Exact boundary check (handles all valid Canadian points including coast/islands)
         if isInCanadaBoundary(lat: lat, lon: lon) {
             return true
         }
+        
+        // Fallback: rough envelope (only if boundary unavailable)
+        return isInRectangle(lat: lat, lon: lon, latitude: 41..<84, longitude: -141.5..<(-52.0))
     }
 
     private static let canadaBoundary: CanadaBoundary? = loadCanadaBoundary()
 
     private static func loadCanadaBoundary() -> CanadaBoundary? {
-          guard let url = Bundle.module.url(forResource: "canada", withExtension: "geojson", subdirectory: "Regions"),
+          guard let url = Bundle.module.url(forResource: "canada-simplified", withExtension: "geojson", subdirectory: "Regions"),
               let data = try? Data(contentsOf: url),
               let featureCollection = try? JSONDecoder().decode(GeoJSONFeatureCollection.self, from: data),
               let geometry = featureCollection.features.first?.geometry,
@@ -147,20 +151,27 @@ enum RegionGeometry {
         return true
     }
 
+    @inline(__always)
     private static func isInRing(point: (x: Double, y: Double), edges: [Edge]) -> Bool {
         guard !edges.isEmpty else {
             return false
         }
 
         var intersects = false
+        let py = point.y
+        let px = point.x
 
         for edge in edges {
-            if point.y <= edge.yMin || point.y > edge.yMax {
+            // Fast rejection: horizontal ray sweep only crosses edges in this y-range
+            if py <= edge.yMin || py > edge.yMax {
                 continue
             }
 
-            let intersectionX = edge.xAtYMin + (point.y - edge.yMin) * edge.invDy
-            if point.x < intersectionX {
+            // Single multiply-add for x-intersection: x = xAtYMin + (py - yMin) * invDy
+            let isectX = edge.xAtYMin + (py - edge.yMin) * edge.invDy
+            
+            // Toggle on each crossing to the right of point
+            if px < isectX {
                 intersects.toggle()
             }
         }
