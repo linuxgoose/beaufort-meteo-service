@@ -197,7 +197,7 @@ enum RegionGeometry {
         let geometry: GeoJSONGeometry
     }
 
-    private struct GeoJSONGeometry: Codable {
+    private struct GeoJSONGeometry: Decodable {
         let type: String
         let coordinates: GeometryCoordinates
 
