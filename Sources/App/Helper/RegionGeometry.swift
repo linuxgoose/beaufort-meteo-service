@@ -38,6 +38,8 @@ enum RegionGeometry {
         return !(hasNegative && hasPositive)
     }
 
+    /// Canada check for model routing.
+    /// Uses exact boundary polygon as the authoritative check.
     static func isInCanadaBoundary(lat: Float, lon: Float) -> Bool {
         guard let boundary = canadaBoundary else {
             return false
@@ -54,12 +56,6 @@ enum RegionGeometry {
             }
         }
         return false
-    }
-
-    /// Canada check for model routing.
-    /// Uses exact boundary polygon as the authoritative check.
-    static func isInCanada(lat: Float, lon: Float) -> Bool {
-        return isInCanadaBoundary(lat: lat, lon: lon)
     }
 
     private static let canadaBoundary: CanadaBoundary? = loadCanadaBoundary()
