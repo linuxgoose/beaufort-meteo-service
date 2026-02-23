@@ -41,7 +41,14 @@ enum RegionGeometry {
     /// Canada check for model routing.
     /// Uses exact boundary polygon as the authoritative check.
     static func isInCanadaBoundary(lat: Float, lon: Float) -> Bool {
-        guard let boundary = canadaBoundary else {
+        return isInBoundary(lat: lat, lon: lon, boundary: canadaBoundary)
+    }
+
+    private static let canadaBoundary: Boundary? = loadBoundary(named: "canada-simplified")
+
+    /// Shared boundary check used by region-specific wrappers.
+    private static func isInBoundary(lat: Float, lon: Float, boundary: Boundary?) -> Bool {
+        guard let boundary = boundary else {
             return false
         }
 
@@ -58,10 +65,9 @@ enum RegionGeometry {
         return false
     }
 
-    private static let canadaBoundary: CanadaBoundary? = loadCanadaBoundary()
-
-    private static func loadCanadaBoundary() -> CanadaBoundary? {
-          guard let url = Bundle.module.url(forResource: "canada-simplified", withExtension: "geojson", subdirectory: "Regions"),
+    /// Load a GeoJSON boundary from Resources/Regions/<name>.geojson
+    private static func loadBoundary(named resourceName: String) -> Boundary? {
+        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "geojson", subdirectory: "Regions"),
               let data = try? Data(contentsOf: url),
               let featureCollection = try? JSONDecoder().decode(GeoJSONFeatureCollection.self, from: data),
               let geometry = featureCollection.features.first?.geometry,
@@ -86,7 +92,7 @@ enum RegionGeometry {
             return nil
         }
 
-        return CanadaBoundary(
+        return Boundary(
             polygons: polygons,
             boundingBox: (latitude: minY...maxY, longitude: minX...maxX)
         )
@@ -168,7 +174,7 @@ enum RegionGeometry {
         return intersects
     }
 
-    private struct CanadaBoundary {
+    private struct Boundary {
         let polygons: [Polygon]
         let boundingBox: (latitude: ClosedRange<Double>, longitude: ClosedRange<Double>)
     }
