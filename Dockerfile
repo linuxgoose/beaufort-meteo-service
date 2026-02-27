@@ -32,7 +32,7 @@ WORKDIR /app
 # Copy build artifacts
 COPY --from=build --chown=openmeteo:openmeteo /build/.build/release/openmeteo-api /app
 RUN mkdir -p /app/Resources
-# COPY --from=build --chown=openmeteo:openmeteo /build/Resources /app/Resources
+COPY --from=build --chown=openmeteo:openmeteo /build/.build/release/OpenMeteoApi_App.resources /app/OpenMeteoApi_App.resources
 COPY --from=build --chown=openmeteo:openmeteo /build/.build/release/SwiftTimeZoneLookup_SwiftTimeZoneLookup.resources /app/Resources/SwiftTimeZoneLookup_SwiftTimeZoneLookup.resources
 COPY --from=build --chown=openmeteo:openmeteo /build/Public /app/Public
 

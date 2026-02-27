@@ -1126,6 +1126,12 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 let ukmoGlobal: (any GenericReaderProtocol)? = try await UkmoReader(domain: UkmoDomain.global_deterministic_10km, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, ecmwf, ifsHres, ukmoGlobal, ukmoUk].compacted())
             }
+            // For Canada, use GEM models based on exact boundary plus relaxed non-border inclusion.
+            if RegionGeometry.isInCanadaBoundary(lat: lat, lon: lon) {
+                let gemProbabilities = try await ProbabilityReader.makeGemReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                let gemReaders = try await GemMixer(domains: [.gem_global, .gem_regional, .gem_hrdps_continental, .gem_hrdps_west], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.reader.map { $0 as any GenericReaderProtocol } ?? []
+                return [gfsProbabilites, gemProbabilities, gfs, icon] + gemReaders
+            }
             // If Icon-d2 is available, use icon domains
             if let iconD2 = try await IconReader(domain: .iconD2, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options),
                let iconD2_15min = try await IconReader(domain: .iconD2_15min, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {

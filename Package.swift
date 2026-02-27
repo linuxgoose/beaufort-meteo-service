@@ -66,6 +66,9 @@ let package = Package(
             ] + (enableParquet ? [
                 .product(name: "SwiftArrowParquet", package: "SwiftArrowParquet")
             ] : []),
+            resources: [
+                .process("Resources")
+            ],
             cSettings: cFlags,
             swiftSettings: swiftFlags + (enableParquet ? [.define("ENABLE_PARQUET")] : [])
             //plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
