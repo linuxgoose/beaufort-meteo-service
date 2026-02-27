@@ -75,7 +75,11 @@ enum RegionGeometry {
 
     /// Load a GeoJSON boundary from Resources/Regions/<name>.geojson
     private static func loadBoundary(named resourceName: String) -> Boundary? {
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "geojson", subdirectory: "Regions"),
+        // SwiftPM resource processing can flatten directory structure depending on runtime packaging.
+        // Try the explicit subdirectory first, then fall back to top-level bundle lookup.
+        let url = Bundle.module.url(forResource: resourceName, withExtension: "geojson", subdirectory: "Regions")
+            ?? Bundle.module.url(forResource: resourceName, withExtension: "geojson")
+        guard let url,
               let data = try? Data(contentsOf: url),
               let featureCollection = try? JSONDecoder().decode(GeoJSONFeatureCollection.self, from: data),
               let geometry = featureCollection.features.first?.geometry,
