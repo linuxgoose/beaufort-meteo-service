@@ -1129,7 +1129,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
             // For Canada, use GEM models based on exact boundary plus relaxed non-border inclusion.
             if RegionGeometry.isInCanadaBoundary(lat: lat, lon: lon) {
                 let gemProbabilities = try await ProbabilityReader.makeGemReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let gemReaders = try await GemMixer(domains: [.gem_global, .gem_regional, .gem_hrdps_continental, .gem_hrdps_west], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.reader.map { $0 as any GenericReaderProtocol } ?? []
+                let gemReaders = try await GemMixer(domains: [.gem_global, .gem_regional, .gem_hrdps_continental], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.reader.map { $0 as any GenericReaderProtocol } ?? []
                 return [gfsProbabilites, gemProbabilities, gfs, icon] + gemReaders
             }
             // If Icon-d2 is available, use icon domains
