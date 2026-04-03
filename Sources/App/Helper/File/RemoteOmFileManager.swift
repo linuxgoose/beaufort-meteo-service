@@ -111,6 +111,7 @@ fileprivate final actor RemoteFileManagerCache {
         var remoteDeleted = 0
         var remoteRevalidated = 0
         var remoteCheckedExist = 0
+        var lastPrint = Timestamp.now()
         
         mutating func reset() {
             inactivity = 0
@@ -119,6 +120,7 @@ fileprivate final actor RemoteFileManagerCache {
             remoteDeleted = 0
             remoteRevalidated = 0
             remoteCheckedExist = 0
+            lastPrint = Timestamp.now()
         }
     }
     

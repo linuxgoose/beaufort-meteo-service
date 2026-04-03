@@ -302,8 +302,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/patrick-zippenfenig/SwiftTimeZoneLookup.git",
       "state" : {
-        "revision" : "1a653bcc6d3e0c5650886aba5c5a277cd49f0bbd",
-        "version" : "1.0.7"
+        "revision" : "e4db6c3ad57b58d472a05b73cf8ea78352957500",
+        "version" : "1.0.8"
       }
     },
     {

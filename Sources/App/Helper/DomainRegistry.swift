@@ -123,6 +123,8 @@ enum DomainRegistry: String, CaseIterable {
 
     case metno_nordic_pp
 
+    case geosphere_arome_austria
+
     case nasa_imerg_daily
 
     case cma_grapes_global
@@ -370,6 +372,8 @@ enum DomainRegistry: String, CaseIterable {
             return nil
         case .metno_nordic_pp:
             return MetNoDomain.nordic_pp
+        case .geosphere_arome_austria:
+            return GeoSphereDomain.arome_austria
         case .nasa_imerg_daily:
             return SatelliteDomain.imerg_daily
         case .cmip_CMCC_CM2_VHR4:
@@ -592,7 +596,7 @@ extension DomainRegistry {
                     continue
                 }
                 try await parseBucket(bucket).foreachConcurrent(nConcurrent: 4) { (bucket, profile) in
-                    if variable.contains("_previous_day") && bucket == "openmeteo" {
+                    if variable.contains("_previous_day") && bucket == "openmeteo" && profile == nil {
                         // do not upload data from past days yet
                         return
                     }
@@ -607,7 +611,7 @@ extension DomainRegistry {
         } else {
             let src = "\(OpenMeteo.dataDirectory)\(dir)"
             try await parseBucket(bucket).foreachConcurrent(nConcurrent: 4) { (bucket, profile) in
-                let exclude = bucket == "openmeteo" ? ["*~", "*_previous_day*", "*rolling.om"] : ["*~", "*rolling.om"]
+                let exclude = bucket == "openmeteo" && profile == nil ? ["*~", "*_previous_day*", "*rolling.om"] : ["*~", "*rolling.om"]
                 logger.info("AWS upload to bucket \(bucket)")
                 let startTimeAws = DispatchTime.now()
                 try Process.awsSync(
