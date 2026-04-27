@@ -303,6 +303,9 @@ struct WeatherApiController {
             let options = try params.readerOptions(for: req, allowRemoteArchive: allowRemoteArchive)
             let temporalResolution = params.temporal_resolution ?? temporalResolutionDefault
             
+            /// Only read 15 minutely data if actually necessary
+            let include15Min = params.current?.isEmpty == false || params.minutely_15?.isEmpty == false || params.current_weather == true
+            
             let prepared = try await params.prepareCoordinates(allowTimezones: true, logger: options.logger, httpClient: options.httpClient)
 
             let locations: [ForecastapiResult<MultiDomainsReader>.PerLocation]
@@ -313,7 +316,7 @@ struct WeatherApiController {
                     let timezone = prepared.timezone
                     let time = try params.getTimerange2(timezone: timezone, current: currentTime, forecastDaysDefault: forecastDayDefault, forecastDaysMax: forecastDaysMax, startEndDate: prepared.startEndDate, allowedRange: allowedRange, pastDaysMax: pastDaysMax)
                     let readers: [MultiDomainsReader] = try await domains.asyncCompactMap { domain in
-                        guard let r = try await domain.getReaders(lat: coordinates.latitude, lon: coordinates.longitude, elevation: coordinates.elevation, mode: cellSelection, options: options, biasCorrection: biasCorrection) else {
+                        guard let r = try await domain.getReaders(lat: coordinates.latitude, lon: coordinates.longitude, elevation: coordinates.elevation, mode: cellSelection, options: options, biasCorrection: biasCorrection, include15Min: include15Min) else {
                             return nil
                         }
                         return MultiDomainsReader(domain: domain, readerHourly: r.hourly, readerDaily: r.daily, readerWeekly: r.weekly, readerMonthly: r.monthly, params: params, run: run, has15minutely: has15minutely, time: time, timezone: timezone, currentTime: currentTime, temporalResolution: temporalResolution)
@@ -1037,7 +1040,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
         }
     }
     
-    func getReaders(lat: Float, lon: Float, elevation: Float, mode: GridSelectionMode, options: GenericReaderOptions, biasCorrection: Bool) async throws -> (hourly: (any GenericReaderOptionalProtocol<ForecastVariable>)?, daily: (any GenericReaderOptionalProtocol<ForecastVariableDaily>)?, weekly: (any GenericReaderOptionalProtocol<ForecastVariableWeekly>)?, monthly: (any GenericReaderOptionalProtocol<ForecastVariableMonthly>)?)? {
+    func getReaders(lat: Float, lon: Float, elevation: Float, mode: GridSelectionMode, options: GenericReaderOptions, biasCorrection: Bool, include15Min: Bool) async throws -> (hourly: (any GenericReaderOptionalProtocol<ForecastVariable>)?, daily: (any GenericReaderOptionalProtocol<ForecastVariableDaily>)?, weekly: (any GenericReaderOptionalProtocol<ForecastVariableWeekly>)?, monthly: (any GenericReaderOptionalProtocol<ForecastVariableMonthly>)?)? {
         
         if let d = getDomainAndVariable() {
             switch d {
@@ -1216,7 +1219,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
 //            let daily = DailyReaderConverter<GenericReaderMulti<ForecastVariable>, ForecastVariableDaily>(reader: hourly, allowMinMaxTwoAggregations: true)
 //            return (hourly, daily, nil, nil)
         default:
-            let readers: [any GenericReaderProtocol] = try await getReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+            let readers: [any GenericReaderProtocol] = try await getReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options, include15Min: include15Min)
             guard readers.count > 0 else {
                 return nil
             }
@@ -1264,7 +1267,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
     
     /// Return the required readers for this domain configuration
     /// Note: last reader has highes resolution data
-    func getReader(lat: Float, lon: Float, elevation: Float, mode: GridSelectionMode, options: GenericReaderOptions) async throws -> [any GenericReaderProtocol] {
+    func getReader(lat: Float, lon: Float, elevation: Float, mode: GridSelectionMode, options: GenericReaderOptions, include15Min: Bool) async throws -> [any GenericReaderProtocol] {
         switch self {
         case .best_match:
             guard let icon: any GenericReaderProtocol = try await IconReader(domain: .icon, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) else {
@@ -1272,36 +1275,31 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
             }
             let gfsProbabilites = try await ProbabilityReader.makeGfsReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
             let iconProbabilities = try await ProbabilityReader.makeIconReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-
-            guard let gfs: any GenericReaderProtocol = try await GfsReader(domains: [.gfs025, .gfs013], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) else {
+            let ifsProbabilities = try await ProbabilityReader.makeEcmwfReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+            guard
+                let gfs: any GenericReaderProtocol = try await GfsReader(domains: [.gfs025, .gfs013], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options),
+                let ifs025 = try await EcmwfReader(domain: .ifs025, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options),
+                let ifsHres = try await EcmwfEcpdsReader(domain: .ifs, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+            else {
                 throw ModelError.domainInitFailed(domain: IconDomains.icon.rawValue)
             }
-            // For Netherlands and Belgium use KNMI
+            // For Netherlands and Belgium use KNMI, IFS and ICON
             if (49.35..<53.79).contains(lat), (2.19..<7.66).contains(lon), let knmiNetherlands = try await KnmiReader(domain: KnmiDomain.harmonie_arome_netherlands, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                let probabilities = try await ProbabilityReader.makeEcmwfReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ecmwf = try await EcmwfReader(domain: .ifs025, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ifsHres = try await EcmwfEcpdsReader(domain: .ifs, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let iconD2 = try await IconReader(domain: .iconD2, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, iconD2, ecmwf, ifsHres, knmiNetherlands].compacted())
+                return Array([ifsProbabilities, gfs, icon, iconEu, iconD2, ifs025, ifsHres, knmiNetherlands].compacted())
             }
-            // Scandinavian region, combine with ICON
+            // Scandinavian region, combine MetNo Nordic with IFS and ICON
             if lat >= 54.9, let metno = try await MetNoReader(domain: .nordic_pp, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
                 let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let probabilities = try await ProbabilityReader.makeEcmwfReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ecmwf = try await EcmwfReader(domain: .ifs025, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ifsHres = try await EcmwfEcpdsReader(domain: .ifs, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let iconD2 = try await IconReader(domain: .iconD2, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, iconD2, ecmwf, ifsHres, metno].compacted())
+                return Array([ifsProbabilities, gfs, icon, iconEu, iconD2, ifs025, ifsHres, metno].compacted())
             }
             // For UK, use MetOffice UK, but cut out the English channel triangle for Northern France
             if RegionGeometry.isInUKVArea(lat: lat, lon: lon), let ukmoUk = try await UkmoReader(domain: UkmoDomain.uk_deterministic_2km, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                let probabilities = try await ProbabilityReader.makeEcmwfReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ecmwf = try await EcmwfReader(domain: .ifs025, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ifsHres = try await EcmwfEcpdsReader(domain: .ifs, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let ukmoGlobal: (any GenericReaderProtocol)? = try await UkmoReader(domain: UkmoDomain.global_deterministic_10km, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, ecmwf, ifsHres, ukmoGlobal, ukmoUk].compacted())
+                return Array([ifsProbabilities, gfs, icon, iconEu, ifs025, ifsHres, ukmoGlobal, ukmoUk].compacted())
             }
             // If Icon-d2 is available, use icon domains
             if let iconD2 = try await IconReader(domain: .iconD2, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options),
@@ -1310,7 +1308,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 guard let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) else {
                     throw ModelError.domainInitFailed(domain: IconDomains.icon.rawValue)
                 }
-                return [gfsProbabilites, iconProbabilities, gfs, icon, iconEu, iconD2, iconD2_15min]
+                return include15Min ? [ifsProbabilities, iconProbabilities, gfs, ifsHres, icon, iconEu, iconD2, iconD2_15min] : [ifsProbabilities, iconProbabilities, gfs, ifsHres, icon, iconEu, iconD2]
             }
             // For western europe, use arome models
             if (42.10..<51.32).contains(lat), (-6.18..<8.35).contains(lon), let arome_france_hd = try await MeteoFranceReader(domain: .arome_france_hd, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
@@ -1318,43 +1316,35 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 let arome_france = try await MeteoFranceReader(domain: .arome_france, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let arome_france_15min = try await MeteoFranceReader(domain: .arome_france_15min, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let arpege_europe = try await MeteoFranceReader(domain: .arpege_europe, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                return Array([gfsProbabilites, iconProbabilities, gfs, icon, arpege_europe, arome_france, arome_france_hd, arome_france_15min, arome_france_hd_15min].compacted())
+                return Array([gfsProbabilites, iconProbabilities, gfs, icon, ifsHres, arpege_europe, arome_france, arome_france_hd, arome_france_15min, arome_france_hd_15min].compacted())
             }
             // For Northern Europe and Iceland use DMI Harmonie
             if (44..<66).contains(lat), let dmiEurope = try await DmiReader(domain: DmiDomain.harmonie_arome_europe, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                let probabilities = try await ProbabilityReader.makeEcmwfReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ecmwf = try await EcmwfReader(domain: .ifs025, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                let ifsHres = try await EcmwfEcpdsReader(domain: .ifs, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
-                return Array([gfsProbabilites, probabilities, gfs, icon, iconEu, ecmwf, ifsHres, dmiEurope].compacted())
+                return Array([gfsProbabilites, ifsProbabilities, gfs, icon, iconEu, ifs025, ifsHres, dmiEurope].compacted())
             }
             // For North America, use HRRR
-            if let hrrr = try await GfsReader(domains: [.hrrr_conus, .hrrr_conus_15min], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
+            if let hrrr = try await GfsReader(domains: include15Min ? [.hrrr_conus, .hrrr_conus_15min] : [.hrrr_conus], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
                 let nbmProbabilities = try await ProbabilityReader.makeNbmReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
                 return Array([gfsProbabilites, nbmProbabilities, icon, gfs, hrrr].compacted())
             }
             // For Japan use JMA MSM with ICON. Does not use global JMA model because of poor resolution
             if (22.4 + 5..<47.65 - 5).contains(lat), (120 + 5..<150 - 5).contains(lon), let jma_msm = try await JmaReader(domain: .msm, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options), let jma_msm_upper = try await JmaReader(domain: .msm_upper_level, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                return [gfsProbabilites, iconProbabilities, gfs, icon, jma_msm_upper, jma_msm]
+                return [gfsProbabilites, ifsProbabilities, gfs, icon, ifsHres, jma_msm_upper, jma_msm]
             }
 
             // Remaining eastern europe
             if let iconEu = try await IconReader(domain: .iconEu, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                return [gfsProbabilites, iconProbabilities, gfs, icon, iconEu]
-            }
-
-            // Northern africa
-            if let arpege_europe = try await MeteoFranceReader(domain: .arpege_europe, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) {
-                return [gfsProbabilites, iconProbabilities, gfs, icon, arpege_europe].compactMap({ $0 })
+                return [gfsProbabilites, ifsProbabilities, iconProbabilities, gfs, ifsHres, icon, iconEu]
             }
 
             // Remaining parts of the world
-            return [gfsProbabilites, iconProbabilities, gfs, icon]
+            return [gfsProbabilites, ifsProbabilities, gfs, icon, ifsHres]
         case .gfs_mix, .gfs_seamless, .ncep_seamless:
             return [
                 try await ProbabilityReader.makeGfsReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) as any GenericReaderProtocol,
                 try await ProbabilityReader.makeNbmReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) as (any GenericReaderProtocol)?,
-                try await GfsReader(domains: [.gfs025, .gfs013, .hrrr_conus, .hrrr_conus_15min], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                try await GfsReader(domains: include15Min ? [.gfs025, .gfs013, .hrrr_conus, .hrrr_conus_15min] : [.gfs025, .gfs013, .hrrr_conus], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
             ].compactMap({ $0 })
         case .gfs_global, .ncep_gfs_global:
             let gfsProbabilites = try await ProbabilityReader.makeGfsReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
@@ -1366,7 +1356,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
         case .gfs_hrrr, .ncep_hrrr_conus:
             return [
                 try await ProbabilityReader.makeNbmReader(lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) as (any GenericReaderProtocol)?,
-                try await GfsReader(domains: [.hrrr_conus, .hrrr_conus_15min], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                try await GfsReader(domains: include15Min ? [.hrrr_conus, .hrrr_conus_15min] : [.hrrr_conus], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
             ].compactMap({ $0 })
         case .ncep_hrrr_conus_15min:
             return try await GfsReader(domains: [.hrrr_conus_15min], lat: lat, lon: lon, elevation: elevation, mode: mode, options: options).flatMap({ [$0] }) ?? []

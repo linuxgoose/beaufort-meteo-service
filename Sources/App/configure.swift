@@ -57,6 +57,11 @@ enum OpenMeteo {
         return nil
     }()
     
+    /// Generate previous day database. Default true
+    static let generatePreviousDay = {
+        Environment.get("GENERATE_PREVIOUS_DAY") != "false"
+    }()
+    
     /// Data directory with trailing slash
     static let dataRunDirectory: String? = {
         if let dir = Environment.get("DATA_RUN_DIRECTORY") {
@@ -233,6 +238,11 @@ public func configure(_ app: Application) throws {
         initialDelay: .seconds(0),
         delay: .seconds(10),
         ApiKeyManager.update
+    )
+    app.lifecycle.repeatedTask(
+        initialDelay: .seconds(60),
+        delay: .seconds(60),
+        ApiKeyManager.uploadApiKeyMetrics
     )
     // Those background tasks are not executed in parallel. The delay is after the call completes
     app.lifecycle.repeatedTask(
