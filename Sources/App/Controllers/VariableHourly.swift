@@ -500,7 +500,7 @@ extension GenericDomain {
         
         guard let reader = try await GenericReader<Self, Variable>(domain: self, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) else {
             if throwOnMissingLocation {
-                throw GenericReaderError.missingLocation
+                throw ForecastApiError.noDataAvailableForThisLocation
             }
             return nil
         }
