@@ -21,6 +21,8 @@ extension ClosedRange where Element == Timestamp {
 /// Option to overwrite the temporal output resolution instead of always getting 1-hourly data.
 enum ApiTemporalResolution: String, Codable {
     case native
+    case minutely_15
+    case minutely_30
     case hourly
     case hourly_1
     case hourly_3
@@ -30,6 +32,10 @@ enum ApiTemporalResolution: String, Codable {
         switch self {
         case .native:
             return nil
+        case .minutely_15:
+            return 15*60
+        case .minutely_30:
+            return 30*60
         case .hourly, .hourly_1:
             return 3600
         case .hourly_3:
@@ -195,22 +201,22 @@ struct ApiQueryParameter: Content, ApiUnitsSelectable {
 
         if run != nil {
             guard start_date.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "start_date")
+                throw ForecastApiError.parameterMustNotBeSet(name: "start_date")
             }
             guard end_date.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "end_date")
+                throw ForecastApiError.parameterMustNotBeSet(name: "end_date")
             }
             guard start_hour.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "start_hour")
+                throw ForecastApiError.parameterMustNotBeSet(name: "start_hour")
             }
             guard end_hour.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "end_hour")
+                throw ForecastApiError.parameterMustNotBeSet(name: "end_hour")
             }
             guard start_minutely_15.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "start_minutely_15")
+                throw ForecastApiError.parameterMustNotBeSet(name: "start_minutely_15")
             }
             guard end_minutely_15.isEmpty else {
-                throw ForecastApiError.parameterMostNotBeSet(name: "end_minutely_15")
+                throw ForecastApiError.parameterMustNotBeSet(name: "end_minutely_15")
             }
         }
     }
@@ -555,7 +561,7 @@ enum ForecastApiError: Error {
     case generic(message: String)
     case cannotReturnModelsWithDifferentTimeIntervals
     case parameterIsRequired(name: String)
-    case parameterMostNotBeSet(name: String)
+    case parameterMustNotBeSet(name: String)
 }
 
 extension ForecastApiError: AbortError {
@@ -609,8 +615,8 @@ extension ForecastApiError: AbortError {
             return "Cannot return models with different time-intervals"
         case .parameterIsRequired(let name):
             return "Parameter '\(name)' is required"
-        case .parameterMostNotBeSet(let name):
-            return "Parameter '\(name)' most not be set"
+        case .parameterMustNotBeSet(let name):
+            return "Parameter '\(name)' must not be set"
         }
     }
 }

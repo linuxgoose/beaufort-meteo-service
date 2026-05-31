@@ -36,12 +36,17 @@ enum DomainRegistry: String, CaseIterable {
     case copernicus_era5_land_daily
     case copernicus_era5_ocean
 
+    /// retired 2026-05-27
     case cmc_gem_gdps
     case cmc_gem_geps
     case cmc_gem_geps_ensemble_mean
     case cmc_gem_hrdps
     case cmc_gem_hrdps_west
+    /// retired 2026-05-27
     case cmc_gem_rdps
+    case cmc_gem_rdps_10km
+    case cmc_gem_gdps_15km
+    case cmc_gem_gdps_15km_upper_level
 
     case ncep_gfs013
     case ncep_gfs025
@@ -90,6 +95,8 @@ enum DomainRegistry: String, CaseIterable {
     case dwd_sis_europe_africa_v4
 
     case ecmwf_ifs
+    case ecmwf_ifs_europe_ensemble
+    case ecmwf_ifs_europe_ensemble_mean
     case ecmwf_ifs04
     case ecmwf_ifs04_ensemble
     case ecmwf_ifs025
@@ -99,6 +106,8 @@ enum DomainRegistry: String, CaseIterable {
     case ecmwf_aifs025_single
     case ecmwf_aifs025_ensemble
     case ecmwf_aifs025_ensemble_mean
+    case ecmwf_aifs_europe_ensemble
+    case ecmwf_aifs_europe_ensemble_mean
     case ecmwf_wam
     case ecmwf_wam025
     case ecmwf_wam025_ensemble
@@ -252,6 +261,14 @@ enum DomainRegistry: String, CaseIterable {
             return Dem90()
         case .ecmwf_ifs:
             return EcmwfEcpdsDomain.ifs
+        case .ecmwf_ifs_europe_ensemble:
+            return EcmwfEcpdsDomain.ifs_europe_ensemble
+        case .ecmwf_ifs_europe_ensemble_mean:
+            return EcmwfEcpdsDomain.ifs_europe_ensemble_mean
+        case .ecmwf_aifs_europe_ensemble:
+            return EcmwfEcpdsDomain.aifs_europe_ensemble
+        case .ecmwf_aifs_europe_ensemble_mean:
+            return EcmwfEcpdsDomain.aifs_europe_ensemble_mean
         case .ecmwf_wam:
             return EcmwfEcpdsDomain.wam
         case .ecmwf_ifs_analysis_long_window:
@@ -280,6 +297,12 @@ enum DomainRegistry: String, CaseIterable {
             return GemDomain.gem_hrdps_west
         case .cmc_gem_rdps:
             return GemDomain.gem_regional
+        case .cmc_gem_rdps_10km:
+            return GemDomain.gem_rdps_10km
+        case .cmc_gem_gdps_15km:
+            return GemDomain.gem_gdps_15km
+        case .cmc_gem_gdps_15km_upper_level:
+            return GemDomain.gem_gdps_15km_upper_level
         case .ncep_gfs013:
             return GfsDomain.gfs013
         case .ncep_gfs025:
@@ -588,7 +611,6 @@ extension DomainRegistry {
         let dir = rawValue
         if let variables {
             let vDirectories = variables.map { $0.omFileName.file } + ["static"]
-            logger.info("AWS upload to bucket \(bucket)")
             for variable in vDirectories {
                 let src = "\(OpenMeteo.dataDirectory)\(dir)/\(variable)"
                 if !FileManager.default.fileExists(atPath: src) {
@@ -600,6 +622,7 @@ extension DomainRegistry {
                         // do not upload data from past days yet
                         return
                     }
+                    logger.info("AWS upload [Bucket \(bucket), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                     try Process.awsSync(
                         src: src,
                         dest: "s3://\(bucket)/data/\(dir)/\(variable)",
@@ -612,6 +635,7 @@ extension DomainRegistry {
         } else {
             let src = "\(OpenMeteo.dataDirectory)\(dir)"
             try await parseBucket(bucket).foreachConcurrent(nConcurrent: 4) { (bucket, profile) in
+                logger.info("AWS upload [Bucket \(bucket), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                 let exclude = bucket == "openmeteo" && profile == nil ? ["*~", "*_previous_day*", "*rolling.om"] : ["*~", "*rolling.om"]
                 logger.info("AWS upload to bucket \(bucket)")
                 let startTimeAws = DispatchTime.now()
