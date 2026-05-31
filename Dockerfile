@@ -15,7 +15,8 @@ RUN ENABLE_PARQUET=TRUE swift package resolve
 COPY . .
 
 # Compile with optimizations
-RUN ENABLE_PARQUET=TRUE MARCH_SKYLAKE=TRUE swift build -c release
+ARG SWIFT_BUILD_JOBS=2
+RUN ENABLE_PARQUET=TRUE MARCH_SKYLAKE=TRUE swift build -c release --jobs ${SWIFT_BUILD_JOBS}
 
 
 # ================================
