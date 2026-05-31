@@ -396,13 +396,6 @@ fileprivate final actor RemoteFileManagerCache {
                 cache.removeValue(forKey: key)
             }
         }
-        if statistics.ticks.isMultiple(of: 10), total > 0 {
-            logger.error("OmFileManager: \(total) open files, \(running) running. Revalidation took \(startRevalidation.timeElapsedPretty()). \(statistics)")
-            if OpenMeteo.remoteDataDirectory != nil {
-                logger.error("\(OpenMeteo.dataBlockCache.cache.statistics().prettyPrint)")
-            }
-            return entry.lastValidatedLocal < olderThan ? (key, entry) : nil
-        }
     }
 
     /// Get entries that have not been validated locally for a while
