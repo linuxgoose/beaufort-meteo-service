@@ -400,11 +400,11 @@ fileprivate final actor RemoteFileManagerCache {
             logger.error("OmFileManager: \(total) open files, \(running) running. Revalidation took \(startRevalidation.timeElapsedPretty()). \(statistics)")
             if OpenMeteo.remoteDataDirectory != nil {
                 logger.error("\(OpenMeteo.dataBlockCache.cache.statistics().prettyPrint)")
-    }
+            }
             return entry.lastValidatedLocal < olderThan ? (key, entry) : nil
-        })
+        }
     }
-    
+
     /// Get entries that have not been validated locally for a while
     func entriesLastValidatedLocal(olderThan: Timestamp) -> [(key: AnyRemoteFileManageable, value: Entry)] {
         return cache.compactMap({ (key, state) in
