@@ -95,7 +95,7 @@ struct DmiDownload: AsyncCommand {
         
         /// Domain elevation field. Used to calculate sea level pressure from surface level pressure in ICON EPS and ICON EU EPS
         let domainElevation = await {
-            guard let elevation = try? await domain.getStaticFile(type: .elevation, httpClient: curl.client, logger: logger)?.read(range: nil) else {
+            guard let elevation = try? await domain.getStaticFile(type: .elevation, httpClient: curl.client, logger: logger)?.read() else {
                 fatalError("cannot read elevation for domain \(domain)")
             }
             return elevation
@@ -297,7 +297,7 @@ struct DmiDownload: AsyncCommand {
     }
 
     /// https://opendatadocs.dmi.govcloud.dk/Data/Forecast_Data_Weather_Model_HARMONIE_DINI_EDR
-    func getVariable(shortName: String, levelStr: String, parameterName: String, typeOfLevel: String) -> GenericVariable? {
+    func getVariable(shortName: String, levelStr: String, parameterName: String, typeOfLevel: String) -> (any GenericVariable)? {
         // if parameterName == "Direct solar exposure" {
             // This contains DNI
             // return DmiSurfaceVariable.shortwave_radiation
