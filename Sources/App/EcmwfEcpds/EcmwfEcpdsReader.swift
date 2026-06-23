@@ -15,11 +15,13 @@ enum EcmwfEcdpsIfsVariableDerived: String, GenericVariableMixable {
     case windspeed_120m
     case windspeed_180m
     case wind_speed_10m
+    case wind_speed_80m
     case wind_speed_100m
     case wind_speed_200m
     case wind_speed_120m
     case wind_speed_180m
     case wind_direction_10m
+    case wind_direction_80m
     case wind_direction_100m
     case wind_direction_200m
     case wind_direction_120m
@@ -119,6 +121,12 @@ struct EcmwfEcpdsReader: GenericReaderDerived, GenericReaderProtocol {
             let u = try await get(raw: .wind_u_component_10m, time: time)
             let direction = Meteorology.windirectionFast(u: u.data, v: v.data)
             return DataAndUnit(direction, .degreeDirection)
+        case .wind_speed_80m:
+            let v = try await get(raw: .wind_v_component_100m, time: time)
+            let u = try await get(raw: .wind_u_component_100m, time: time)
+            let factor = Meteorology.scaleWindFactor(from: 100, to: 80)
+            let speed = zip(u.data, v.data).map(Meteorology.windspeed).map({$0 * factor})
+            return DataAndUnit(speed, .metrePerSecond)
         case .wind_speed_100m, .windspeed_100m:
             let v = try await get(raw: .wind_v_component_100m, time: time)
             let u = try await get(raw: .wind_u_component_100m, time: time)
@@ -141,7 +149,7 @@ struct EcmwfEcpdsReader: GenericReaderDerived, GenericReaderProtocol {
             let factor = Meteorology.scaleWindFactor(from: 200, to: 180)
             let speed = zip(u.data, v.data).map(Meteorology.windspeed).map({$0 * factor})
             return DataAndUnit(speed, .metrePerSecond)
-        case .wind_direction_100m, .winddirection_100m, .wind_direction_120m, .winddirection_120m:
+        case .wind_direction_100m, .winddirection_100m, .wind_direction_120m, .winddirection_120m, .wind_direction_80m:
             let v = try await get(raw: .wind_v_component_100m, time: time)
             let u = try await get(raw: .wind_u_component_100m, time: time)
             let direction = Meteorology.windirectionFast(u: u.data, v: v.data)
@@ -156,19 +164,25 @@ struct EcmwfEcpdsReader: GenericReaderDerived, GenericReaderProtocol {
         case .weather_code, .weathercode:
             let cloudcover = try await get(raw: .cloud_cover, time: time).data
             let precipitation = try await get(raw: .precipitation, time: time).data
+            let showers = try await get(raw: .showers, time: time).data
             let snowfall = try await get(derived: .snowfall, time: time).data
             let cape = try await get(raw: .cape, time: time).data
+            let cin = try await get(raw: .convective_inhibition, time: time).data
+            let pbl = try await get(raw: .boundary_layer_height, time: time).data
             return DataAndUnit(WeatherCode.calculate(
                 cloudcover: cloudcover,
                 precipitation: precipitation,
-                convectivePrecipitation: nil,
+                convectivePrecipitation: showers,
                 snowfallCentimeters: snowfall,
                 gusts: nil,
                 cape: cape,
                 liftedIndex: nil,
+                convectiveInhibition: cin,
+                pblHeight: pbl,
                 visibilityMeters: nil,
                 categoricalFreezingRain: nil,
-                modelDtSeconds: time.dtSeconds), .wmoCode
+                modelDtSeconds: time.dtSeconds,
+                latitude: reader.modelLat), .wmoCode
             )
         case .snowfall:
             let snow = try await get(raw: .snowfall_water_equivalent, time: time).data.map({ $0 * 0.7 })
@@ -379,7 +393,7 @@ struct EcmwfEcpdsReader: GenericReaderDerived, GenericReaderProtocol {
         case .global_tilted_irradiance, .global_tilted_irradiance_instant, .diffuse_radiation:
             try await prefetchData(raw: .shortwave_radiation, time: time)
             try await prefetchData(raw: .direct_radiation, time: time)
-        case .windspeed_100m, .wind_speed_100m, .winddirection_100m, .wind_direction_100m, .windspeed_120m, .wind_speed_120m, .winddirection_120m, .wind_direction_120m:
+        case .windspeed_100m, .wind_speed_100m, .winddirection_100m, .wind_direction_100m, .windspeed_120m, .wind_speed_120m, .winddirection_120m, .wind_direction_120m, .wind_direction_80m, .wind_speed_80m:
             try await prefetchData(raw: .wind_u_component_100m, time: time)
             try await prefetchData(raw: .wind_v_component_100m, time: time)
         case .windspeed_200m, .wind_speed_200m, .winddirection_200m, .wind_direction_200m, .windspeed_180m, .wind_speed_180m, .winddirection_180m, .wind_direction_180m:
@@ -392,9 +406,12 @@ struct EcmwfEcpdsReader: GenericReaderDerived, GenericReaderProtocol {
             try await prefetchData(raw: .soil_temperature_0_to_7cm, time: time)
         case .weather_code, .weathercode:
             try await prefetchData(raw: .cloud_cover, time: time)
+            try await prefetchData(raw: .showers, time: time)
             try await prefetchData(derived: .snowfall, time: time)
             try await prefetchData(raw: .precipitation, time: time)
             try await prefetchData(raw: .cape, time: time)
+            try await prefetchData(raw: .convective_inhibition, time: time)
+            try await prefetchData(raw: .boundary_layer_height, time: time)
         case .rain:
             try await prefetchData(raw: .precipitation, time: time)
             try await prefetchData(raw: .snowfall_water_equivalent, time: time)

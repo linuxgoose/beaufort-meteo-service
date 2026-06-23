@@ -108,19 +108,8 @@ final class Curl: Sendable {
             return try await initiateDownloadCached(url: _url, range: range, minSize: minSize, cacheDirectory: cacheDirectory, nConcurrent: nConcurrent, headers: headers)
         }
         
-        // URL might contain password, strip them from logging
-        let url: String
-        let user: String?
-        let password: String?
-        if _url.contains("@") && _url.contains(":") {
-            let usernamePassword = _url.split(separator: "/", maxSplits: 1)[1].dropFirst().split(separator: "@", maxSplits: 1)[0].split(separator: ":")
-            user = String(usernamePassword.first!)
-            password = usernamePassword.count > 1 ? String(usernamePassword[1]) : nil
-            url = _url.stripHttpPassword()
-        } else {
-            url = _url
-            user = nil
-            password = nil
+        guard let (schema, user, password, url) = _url.extractSchemaUserNamePasswordCleanUrl() else {
+            throw CurlError.invalidURL(_url)
         }
 
         if !quiet && waitAfterLastModifiedBeforeDownload == nil {
@@ -140,11 +129,11 @@ final class Curl: Sendable {
                 request.method = method
                 if let user = user, let password = password {
                     // Request need to be signed in the retry loop because the signature expires after 15 minutes
-                    if url.contains(".your-objectstorage.com") || url.contains("s3.open-meteo.com") || url.contains("127.0.0.1:7480") {
-                        let signer = AWSSigner(accessKey: user, secretKey: password, region: "us-west-2", service: "s3")
-                        try signer.sign(request: &request, body: nil)
+                    if schema == "s3" {
+                        let signer = AWSSigner(accessKey: String(user), secretKey: String(password), region: "us-west-2", service: "s3")
+                        try signer.sign(request: &request)
                     } else {
-                        request.setBasicAuth(username: user, password: password)
+                        request.setBasicAuth(username: String(user), password: String(password))
                     }
                 }
                 if let range = range {
@@ -271,7 +260,7 @@ final class Curl: Sendable {
     /// Cache all HTTP download in temporary files. Only used for debugging.
     private func initiateDownloadCached(url: String, range: String?, minSize: Int?, cacheDirectory: String, nConcurrent: Int, headers: [(String, String)] = []) async throws -> HTTPClientResponse {
         try FileManager.default.createDirectory(atPath: cacheDirectory, withIntermediateDirectories: true)
-        // try FileManager.default.deleteFiles(direcotry: cacheDirectory, olderThan: Date().addingTimeInterval(-2*24*3600))
+        // try FileManager.default.deleteFiles(directory: cacheDirectory, olderThan: Date().addingTimeInterval(-2*24*3600))
         let cacheFile = cacheDirectory + "/" + (url + (range ?? "")).sha256
         if !FileManager.default.fileExists(atPath: cacheFile) {
             try await self.download(url: url, toFile: cacheFile, bzip2Decode: false, range: range, minSize: minSize, cacheDirectory: nil, nConcurrent: 1, headers: headers)

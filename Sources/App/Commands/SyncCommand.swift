@@ -52,12 +52,6 @@ struct SyncCommand: AsyncCommand {
         @Option(name: "concurrent-models", short: "c", help: "Number of concurrent models to download. Default 2")
         var concurrentModels: Int?
 
-        @Option(name: "data-directory-max-size-gb", help: "Trim data directory to the specified target size in gigabyte GB")
-        var dataDirectoryMaxSize: Int?
-
-        @Option(name: "cache-directory-max-size-gb", help: "Trim cache directory to the specified target size in gigabyte GB")
-        var cacheDirectoryMaxSize: Int?
-
         @Flag(name: "execute", help: "Actually perfom file delete on cleanup")
         var execute: Bool
 
@@ -122,7 +116,7 @@ struct SyncCommand: AsyncCommand {
             let end = yearRange.upperBound.toComponents().year - 1
             logger.info("Checking for files within year \(start)-\(end)")
         } else {
-            logger.info("Checking for files to with more than \(pastDays) past days data")
+            logger.info("Checking for files with more than \(pastDays) past days data")
         }
         
         let serverModelVariable: [(server: String, model: DomainRegistry, variables: [String])] = zip(serverSet, zip(modelsSet, variablesSet)).flatMap { server, arg1 -> [(server: String, model: DomainRegistry, variables: [String])] in
@@ -186,16 +180,13 @@ struct SyncCommand: AsyncCommand {
         // See: https://github.com/swift-server/async-http-client/issues/602
         let client = server.contains(".your-objectstorage.com") || server.contains("s3.open-meteo.com") || server.contains("127.0.0.1:7480") ? application.http1Client : application.dedicatedHttpClient
         
-        /// 2025-07-28 For whatever reason, the hetzner s3 storage returns 404 from time to time. Maybe updates are not perfectly atomic
-        let curl = Curl(logger: logger, client: client, retryError4xx: true)
-        
         let timeRange = yearRange ?? Timestamp.now().add(-24 * 3600 * pastDays) ..< Timestamp(2200, 1, 1)
         
         /// Get a list of all variables from all models
-        let remoteDirectories = try await curl.s3list(server: server, prefix: "data/\(model.rawValue)/", apikey: apikey, deadLineHours: 0.1).directories
+        let remoteDirectories = try await S3List.s3list(client: client, server: server, prefix: "data/\(model.rawValue)/", apikey: apikey, deadLineHours: 0.1).directories
         
         /// Filter variables to download
-        let toDownload: [S3DataController.S3ListV2File] = try await remoteDirectories.mapConcurrent(nConcurrent: concurrent) { remoteDirectory -> [S3DataController.S3ListV2File] in
+        let toDownload: [S3List.ListV2File] = try await remoteDirectories.mapConcurrent(nConcurrent: concurrent) { remoteDirectory -> [S3List.ListV2File] in
             guard let variablePos = remoteDirectory.dropLast().lastIndex(of: "/") else {
                 fatalError("could not get variable from string")
             }
@@ -211,7 +202,7 @@ struct SyncCommand: AsyncCommand {
                     variables.contains(where: { $0 == variable }) else {
                 return []
             }
-            let remote = try await curl.s3list(server: server, prefix: remoteDirectory, apikey: apikey, deadLineHours: 0.1)
+            let remote = try await S3List.s3list(client: client, server: server, prefix: remoteDirectory, apikey: apikey, deadLineHours: 0.1)
             let filtered = remote.files.includeFiles(timeRange: timeRange, domain: model).includeFiles(compareLocalDirectory: OpenMeteo.dataDirectory)
             return Array(filtered)
         }.flatMap({$0})
@@ -223,11 +214,10 @@ struct SyncCommand: AsyncCommand {
         let totalBytes = toDownload.reduce(0, { $0 + $1.fileSize })
         logger.info("Downloading \(toDownload.count) files (\(totalBytes.bytesHumanReadable))")
         let progress = TransferAmountTracker(logger: logger, totalSize: totalBytes, name: "\(model.rawValue) \(toDownload.count) files")
-        let curlStartBytes = curl.totalBytesTransfered.load(ordering: .relaxed)
         try await toDownload.foreachConcurrent(nConcurrent: concurrent) { download in
-            var client = ClientRequest(url: URI("\(server)\(download.name)"))
+            var request = ClientRequest(url: URI("\(server)\(download.name)"))
             if apikey != nil {
-                try client.query.encode(S3DataController.DownloadParams(apikey: apikey, rate: nil))
+                try request.query.encode(S3DataController.DownloadParams(apikey: apikey, rate: nil))
             }
             let pathNoData = download.name[download.name.index(download.name.startIndex, offsetBy: 5)..<download.name.endIndex]
             let localFile = "\(OpenMeteo.dataDirectory)/\(pathNoData)"
@@ -236,85 +226,30 @@ struct SyncCommand: AsyncCommand {
             // Another process might be updating this file right now. E.g. Second sync operation
             FileManager.default.waitIfFileWasRecentlyModified(at: "\(localFile)~", waitTimeMinutes: 1)
             if localFile.hasSuffix("/meta.json") {
+                let body = try await client.executeRetryAndCollect(.init(url: request.url.string), logger: logger, upTo: 2*1024*1024, deadline: .minutes(5))
+                await progress.add(body.readableBytes)
+                guard let json = try body.readJSONDecodable(ModelUpdateMetaJson.self) else {
+                    logger.error("Not a valid ModelUpdateMetaJson \(pathNoData)")
+                    return
+                }
                 /// Update the `last_run_availability_time` within meta.json
-                try await curl
-                    .downloadInMemoryAsync(url: client.url.string, minSize: nil, deadLineHours: 0.1)
-                    .readJSONDecodable(ModelUpdateMetaJson.self)?
-                    .with(last_run_availability_time: .now())
-                    .writeTo(path: localFile)
+                try json.with(last_run_availability_time: .now()).writeTo(path: localFile)
             } else {
-                try await curl.download(url: client.url.string, toFile: localFile, bzip2Decode: false, deadLineHours: 0.5)
-            }
-            progress.set(curl.totalBytesTransfered.load(ordering: .relaxed) - curlStartBytes)
-        }
-        progress.finish()
-        await curl.printStatistics()
-    }
-
-    /**
-     Delete old files to trim directory size
-     */
-    func cacheDirectoryCleanup(logger: Logger, cacheDirectory: String, maxSize: Int, execute: Bool) throws {
-        logger.info("Checking directory size of '\(cacheDirectory)'. Target size \(maxSize.bytesHumanReadable)")
-        if cacheDirectory.isEmpty, maxSize <= 0 {
-            fatalError()
-        }
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: URL(fileURLWithPath: cacheDirectory),
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            fatalError("Could not get enumerator")
-        }
-
-        var files = [(file: URL, modifiedAt: Date, size: Int)]()
-        var totalSize: Int = 0
-        for case let fileURL as URL in enumerator {
-            do {
-                if fileURL.absoluteString.last == "~" {
-                    continue
+                for _ in 0..<10 {
+                    do {
+                        let response = try await client.executeRetryChunked(.init(url: request.url.string), logger: logger)
+                        /// Download file chunked into 8 MB parts. Get 4 chunks in parallel
+                        try await response.body.saveTo(file: localFile, size: try response.contentLength(), modificationDate: response.headers.lastModified?.value, logger: logger)
+                        await progress.add(try response.contentLength() ?? 0)
+                        break
+                    } catch CurlErrorNonRetry.fileModifiedSinceLastDownload {
+                        /// Because we are downloading chunks, the remote server might have updated the initial file and we have to restart the entire download
+                        try FileManager.default.removeItemIfExists(at: localFile)
+                    }
                 }
-                let fileAttributes = try fileURL.resourceValues(forKeys: Set(resourceKeys))
-                guard fileAttributes.isRegularFile == true,
-                        let modificationDate = fileAttributes.contentModificationDate else {
-                    continue
-                }
-                let size = fileURL.getAllocatedSize()
-                totalSize += size
-                if !fileURL.absoluteString.contains(".om") || fileURL.absoluteString.contains("/static/") {
-                    continue
-                }
-                files.append((fileURL, modificationDate, size))
-            } catch {
-                print(error, fileURL)
             }
         }
-        if totalSize < maxSize {
-            logger.info("OK, Total Size: \(totalSize.bytesHumanReadable)")
-            return
-        }
-        logger.info("Cleanup, current size \(totalSize.bytesHumanReadable), deleting \((totalSize - maxSize).bytesHumanReadable)")
-
-        // Sort by modification date
-        files.sort(by: { $0.modifiedAt < $1.modifiedAt })
-        for file in files {
-            guard totalSize > maxSize else {
-                break
-            }
-            if execute {
-                logger.info("Remove file \(file.file), modified at \(file.modifiedAt), size \(file.size.bytesHumanReadable)")
-                do {
-                    try FileManager.default.removeItem(at: file.file)
-                } catch {
-                    print(error, file.file)
-                }
-            } else {
-                logger.info("[DRY RUN] Would remove file \(file.file), modified at \(file.modifiedAt), size \(file.size.bytesHumanReadable)")
-            }
-            totalSize -= file.size
-        }
-        logger.info("New size \(totalSize.bytesHumanReadable)")
+        await progress.finish()
     }
 }
 
@@ -336,7 +271,7 @@ fileprivate extension URL {
     }
 }
 
-fileprivate extension Array where Element == S3DataController.S3ListV2File {
+fileprivate extension Array where Element == S3List.ListV2File {
     /// Only include files with data newer than a given timestamp. This is based on evaluating the time-chunk in the filename and is not based on the modification time
     func includeFiles(timeRange: Range<Timestamp>, domain registry: DomainRegistry) -> [Element] {
         guard let domain = registry.getDomain() else {
@@ -387,82 +322,3 @@ fileprivate extension Array where Element == S3DataController.S3ListV2File {
     }
 }
 
-extension StringProtocol {
-    /// Interpret the given string as XML and iterate over a list of keys
-    func xmlSection(_ section: String) -> AnySequence<SubSequence> {
-        return AnySequence<SubSequence> { () -> AnyIterator<SubSequence> in
-            var pos = startIndex
-            return AnyIterator<SubSequence> {
-                guard let start = range(of: "<\(section)>", range: pos..<endIndex) else {
-                    return nil
-                }
-                guard let end = range(of: "</\(section)>", range: start.upperBound..<endIndex) else {
-                    return nil
-                }
-                let substr = self[start.upperBound..<end.lowerBound]
-                pos = end.upperBound
-                return substr
-            }
-        }
-    }
-
-    /// Interpret the given string as XML and get the first key
-    func xmlFirst(_ section: String) -> SubSequence? {
-        guard let start = range(of: "<\(section)>", range: startIndex..<endIndex) else {
-            return nil
-        }
-        guard let end = range(of: "</\(section)>", range: start.upperBound..<endIndex) else {
-            return nil
-        }
-        return self[start.upperBound..<end.lowerBound]
-    }
-}
-
-
-
-fileprivate extension Curl {
-    /// Use the AWS ListObjectsV2 to list files and directories inside a bucket with a prefix. No support more than 1000 objects yet
-    func s3list(server: String, prefix: String, apikey: String?, deadLineHours: Double) async throws -> (files: [S3DataController.S3ListV2File], directories: [String]) {
-        var allFiles: [S3DataController.S3ListV2File] = []
-        var allDirectories: [String] = []
-        var continuation: String? = nil
-        while true {
-            var request = ClientRequest(method: .GET, url: URI("\(server)"))
-            let params = S3DataController.S3ListV2(list_type: 2, delimiter: "/", prefix: prefix, apikey: apikey, continuation_token: continuation)
-            try request.query.encode(params)
-            var response = try await downloadInMemoryAsync(url: request.url.string, minSize: nil, deadLineHours: deadLineHours, quiet: true)
-            guard let body = response.readString(length: response.readableBytes) else {
-                return (allFiles, allDirectories)
-            }
-            
-            let files = body.xmlSection("Contents").map {
-                guard let name = $0.xmlFirst("Key"),
-                      let modificationTimeString = $0.xmlFirst("LastModified"),
-                      let modificationTime = DateFormatter.awsS3DateTime.date(from: String(modificationTimeString)),
-                      let fileSizeString = $0.xmlFirst("Size"),
-                      let fileSize = Int(fileSizeString)
-                else {
-                    fatalError()
-                }
-                return S3DataController.S3ListV2File(name: String(name), modificationTime: modificationTime, fileSize: fileSize)
-            }
-            let directories = body.xmlSection("CommonPrefixes").map {
-                guard let prefix = $0.xmlFirst("Prefix") else {
-                    fatalError()
-                }
-                return String(prefix)
-            }
-            allFiles.append(contentsOf: files)
-            allDirectories.append(contentsOf: directories)
-
-            // Check if more files are available
-            if body.contains("<IsTruncated>true</IsTruncated>"),
-                let token = body.xmlFirst("NextContinuationToken") {
-                continuation = String(token)
-            } else {
-                break
-            }
-        }
-        return (allFiles, allDirectories)
-    }
-}

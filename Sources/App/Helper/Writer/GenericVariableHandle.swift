@@ -1,4 +1,5 @@
 @preconcurrency import OmFileFormat
+import Vapor
 import SwiftNetCDF
 import Foundation
 import Logging
@@ -36,11 +37,17 @@ struct GenericVariableHandle: Sendable {
 
     /// Process concurrently
     /// Note: domain is now ignored, because GenericVariableHandle can now domain property. Makes it easier for ensemble mean calculation
-    static func convert(logger: Logger, domain domainIgnored: GenericDomain, createNetcdf: Bool, run: Timestamp?, handles: [Self], concurrent: Int, writeUpdateJson: Bool, uploadS3Bucket: String?, uploadS3OnlyProbabilities: Bool, compression: OmCompressionType = .pfor_delta2d_int16, generateFullRun: Bool = true, generateTimeSeries: Bool = true) async throws {
+    /// If `fullRunSkipMeta` do not generate meta.json for each run
+    static func convert(application: Application, domain domainIgnored: GenericDomain, createNetcdf: Bool, run: Timestamp?, handles: [Self], concurrent: Int, writeUpdateJson: Bool, uploadS3Bucket: String?, uploadS3OnlyProbabilities: Bool, compression: OmCompressionType = .pfor_delta2d_int16, generateFullRun: Bool = true, generateTimeSeries: Bool = true, fullRunSkipMeta: Bool = false) async throws {
+        let logger = application.logger
         for (_, handles) in handles.groupedPreservedOrder(by: {"\($0.domain)"}) {
             let domain = handles[0].domain
+            
+            let generateTimeSeries = generateTimeSeries && domain.generateTimeSeries
+            
             if generateTimeSeries {
                 let startTime = DispatchTime.now()
+                logger.info("Start Convert [Time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                 try await convertConcurrent(logger: logger, domain: domain, createNetcdf: createNetcdf, run: run, handles: handles, onlyGeneratePreviousDays: false, concurrent: concurrent, compression: compression)
                 logger.info("Convert completed in \(startTime.timeElapsedPretty()) [Time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
             }
@@ -78,7 +85,7 @@ struct GenericVariableHandle: Sendable {
             
             if generateTimeSeries, let uploadS3Bucket = uploadS3Bucket {
                 try await domain.domainRegistry.syncToS3(
-                    logger: logger,
+                    application: application,
                     bucket: uploadS3Bucket,
                     variables: uploadS3OnlyProbabilities ? [ProbabilityVariable.precipitation_probability] : nil
                 )
@@ -98,7 +105,7 @@ struct GenericVariableHandle: Sendable {
                 /// Only upload to S3 if not ensemble domain. Ensemble domains set `uploadS3OnlyProbabilities`
                 if !uploadS3OnlyProbabilities, let uploadS3Bucket {
                     try await domain.domainRegistry.syncToS3(
-                        logger: logger,
+                        application: application,
                         bucket: uploadS3Bucket,
                         variables: nil
                     )
@@ -108,17 +115,19 @@ struct GenericVariableHandle: Sendable {
         
         for (_, handles) in handles.groupedPreservedOrder(by: {"\($0.domain)"}) {
             let domain = handles[0].domain
-            if generateFullRun, domain.countEnsembleMember == 1, OpenMeteo.dataRunDirectory != nil, let run, run.hour % 3 == 0 {
+            let generateFullRun = generateFullRun && domain.generateFullRun
+            if generateFullRun, OpenMeteo.dataRunDirectory != nil, let run, run.hour % 3 == 0 {
                 logger.info("Generate full run data [Time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                 let startTimeFullRun = DispatchTime.now()
-                try await generateFullRunData(logger: logger, domain: domain, run: run, handles: handles, concurrent: concurrent, compression: compression)
+                try await generateFullRunData(logger: logger, domain: domain, run: run, handles: handles, concurrent: concurrent, compression: compression, skipMeta: fullRunSkipMeta)
                 logger.info("Full run convert in \(startTimeFullRun.timeElapsedPretty()) [Time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                 
                 if let uploadS3Bucket {
-                    try domain.domainRegistry.syncToS3PerRun(
-                        logger: logger,
+                    try await domain.domainRegistry.syncToS3PerRun(
+                        application: application,
                         bucket: uploadS3Bucket,
-                        run:run
+                        run: run,
+                        skipMeta: fullRunSkipMeta
                     )
                 }
             }
@@ -126,7 +135,7 @@ struct GenericVariableHandle: Sendable {
     }
     
     /// Generate time-series optimised files for each variable per run. `/data_run/<domain>/<run>/<variable>.om`
-    static func generateFullRunData(logger: Logger, domain: GenericDomain, run: Timestamp, handles: [Self], concurrent: Int, compression: OmCompressionType) async throws {
+    static func generateFullRunData(logger: Logger, domain: GenericDomain, run: Timestamp, handles: [Self], concurrent: Int, compression: OmCompressionType, skipMeta: Bool) async throws {
         let grid = domain.grid
         let nx = grid.nx
         let ny = grid.ny
@@ -194,7 +203,7 @@ struct GenericVariableHandle: Sendable {
                         array: data3d.data,
                         arrayDimensions: thisChunkDimensions
                     )
-                    progress.add(data3d.data.count * MemoryLayout<Float>.size)
+                    await progress.add(data3d.data.count * MemoryLayout<Float>.size)
                 }
             }
             let arrayFinalised = try writer.finalise()
@@ -216,10 +225,12 @@ struct GenericVariableHandle: Sendable {
             let root = try writeFile.write(array: arrayFinalised, name: "", children: [crs, unit, runTime, validTime, coordinates, createdAt].compactMap({$0}))
             try writeFile.writeTrailer(rootVariable: root)
             try fn.linkTemporary(file: filePath)
-            progress.finish()
+            await progress.finish()
         }
         let validTimes = handles.flatMap({$0.time.map({$0})}).uniqued().sorted()
-        try FullRunMetaJson.write(domain: domain, run: run, validTimes: validTimes)
+        if !skipMeta {
+            try FullRunMetaJson.write(domain: domain, run: run, validTimes: validTimes)
+        }
     }
 
     private static func convertConcurrent(logger: Logger, domain: GenericDomain, createNetcdf: Bool, run: Timestamp?, handles: [Self], onlyGeneratePreviousDays: Bool, concurrent: Int, compression: OmCompressionType) async throws {
@@ -336,7 +347,12 @@ struct GenericVariableHandle: Sendable {
                     guard memberRange.contains(UInt64(reader.member)) else {
                         fatalError("Invalid reader.member \(reader.member) for range \(memberRange)")
                     }
-                    if dimensions.count == 3 {
+                    if dimensions.count == 3 && dimensions[0] == nMembers && dimensions[1] == ny && dimensions[2] == nx {
+                        /// Dimensions [member, y, x]
+                        try! await reader.reader.read(into: &readTemp, range: [UInt64(reader.member)..<UInt64(reader.member+1), yRange, xRange])
+                        data3d[0..<nLoc, Int(reader.member), timeArrayIndex] = readTemp[0..<nLoc]
+                    } else if dimensions.count == 3 {
+                        /// Dimensions [y, x, time]
                         /// Number of time steps in this file
                         let nt = dimensions[2]
                         guard nt == reader.time.count else {
@@ -361,10 +377,10 @@ struct GenericVariableHandle: Sendable {
                     locationRange: locationRange1D
                 )
 
-                progress.add(nLoc * memberRange.count * time.count * MemoryLayout<Float>.size)
+                await progress.add(nLoc * memberRange.count * time.count * MemoryLayout<Float>.size)
                 return ArraySlice(data3d.data)
             }
-            progress.finish()
+            await progress.finish()
         }
     }
 }
@@ -464,3 +480,4 @@ actor GribDeaverager {
         return await deaccumulateIfRequired(variable: variable, member: member, stepType: stepType, stepRange: stepRange, array2d: &grib2d.array)
     }
 }
+

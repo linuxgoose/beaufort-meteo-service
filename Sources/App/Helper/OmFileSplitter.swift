@@ -39,7 +39,7 @@ struct OmFileSplitter {
     /// icon-eu =  16
     /// icon-d2 = 25
     /// ecmwf = 30
-    /// NOTE: carefull with reducing nchunkLocaiton, because updates will use the wrong buffer size!!!!
+    /// NOTE: careful with reducing nchunkLocation, because updates will use the wrong buffer size!!!!
     static func calcChunknLocations(nTimePerFile: Int) -> Int {
         max(6, 3072 / nTimePerFile)
     }
@@ -84,6 +84,9 @@ struct OmFileSplitter {
         
         /// Read individual runs from dedicated database
         if let run = time.run {
+            guard try await domain.getFullRunMeta(client: httpClient, logger: logger, run: run.toTimestamp()) != nil else {
+                throw ForecastApiError.modelRunUnavailable(model: domain, run: run.toTimestamp())
+            }
             let file = OmFileType.run(domain: domain, variable: variable, run: run)
             try await RemoteFileManager.instance.with(file: file, client: httpClient, logger: logger) { (reader, timestamps, _) in
                 guard let timestamps else {
@@ -185,6 +188,9 @@ struct OmFileSplitter {
         
         /// Read individual runs from dedicated database
         if let run = time.run {
+            guard try await domain.getFullRunMeta(client: httpClient, logger: logger, run: run.toTimestamp()) != nil else {
+                throw ForecastApiError.modelRunUnavailable(model: domain, run: run.toTimestamp())
+            }
             let file = OmFileType.run(domain: domain, variable: variable.omFileName.file, run: run)
             try await RemoteFileManager.instance.with(file: file, client: httpClient, logger: logger) { (reader, timestamps, _) in
                 guard let timestamps else {
@@ -403,9 +409,10 @@ struct OmFileSplitter {
                 for writer in writers {
                     if let omRead = writer.read?.asArray(of: Float.self) {
                         // Read existing data for a range of locations
-                        let dimensions = omRead.getDimensions()
-                        switch dimensions.count {
+                        let nDimensions = omRead.getDimensionsCount()
+                        switch nDimensions {
                         case 2: // Old legacy file
+                            let dimensions: InlineArray<2, UInt64> = omRead.getDimensionsInline()
                             if dimensions[0] == UInt64(ny * nx) {
                                 // Dimensions are ok, read data. Ignores legacy ensemble files
                                 let start = yRange.lowerBound * UInt64(nx) + xRange.lowerBound
@@ -416,17 +423,19 @@ struct OmFileSplitter {
                                 )
                             }
                         case 3:
+                            //let dimensions: InlineArray<3, UInt64> = omRead.getDimensionsInline()
                             try await omRead.read(
                                 into: &fileData,
                                 range: [yRange, xRange, 0..<UInt64(nTimePerFile)]
                             )
                         case 4: // ensemble files
+                            //let dimensions: InlineArray<4, UInt64> = omRead.getDimensionsInline()
                             try await omRead.read(
                                 into: &fileData,
                                 range: [yRange, xRange, memberRange, 0..<UInt64(nTimePerFile)]
                             )
                         default:
-                            fatalError("Unexpected number of dimensions (\(dimensions.count))")
+                            fatalError("Unexpected number of dimensions (\(nDimensions))")
                         }
                     } else {
                         // If the old file does not exist, just make sure it is filled with NaNs
@@ -537,9 +546,10 @@ struct OmFileSplitter {
 
                 if let omRead = omRead?.asArray(of: Float.self), let readOffsets {
                     // Read existing data for a range of locations
-                    let dimensions = omRead.getDimensions()
-                    switch dimensions.count {
+                    let nDimensions = omRead.getDimensionsCount()
+                    switch nDimensions {
                     case 3:
+                        //let dimensions: InlineArray<3, UInt64> = omRead.getDimensionsInline()
                         try await omRead.read(
                             into: &fileData,
                             range: [yRange, xRange, UInt64(readOffsets.file.lowerBound) ..< UInt64(readOffsets.file.upperBound)],
@@ -548,6 +558,7 @@ struct OmFileSplitter {
                             
                         )
                     case 4: // ensemble files
+                        //let dimensions: InlineArray<4, UInt64> = omRead.getDimensionsInline()
                         try await omRead.read(
                             into: &fileData,
                             range: [yRange, xRange, memberRange, UInt64(readOffsets.file.lowerBound) ..< UInt64(readOffsets.file.upperBound)],
@@ -555,7 +566,7 @@ struct OmFileSplitter {
                             intoCubeDimension: [UInt64(yRange.count), UInt64(xRange.count), UInt64(nMembers), UInt64(fileTime.count)]
                         )
                     default:
-                        fatalError("Unexpected number of dimensions (\(dimensions.count))")
+                        fatalError("Unexpected number of dimensions (\(nDimensions))")
                     }
                 } else {
                     // If the old file does not exist, just make sure it is filled with NaNs
@@ -646,9 +657,9 @@ extension OmFileReaderArrayProtocol where OmType == Float {
     /// Note: `nTime` is the output array nTime. It is not the file nTime!
     /// TODO: nMembers variable is wrong if called via API controller. Aways 1
     func read3D(into: inout [Float], ny: Int, nx: Int, nTime: Int, nMembers: Int, location: Range<Int>, level: Int, timeOffsets: (file: CountableRange<Int>, array: CountableRange<Int>)) async throws {
-        let dimensions = self.getDimensions()
-        switch dimensions.count {
+        switch self.getDimensionsCount() {
         case 2:
+            let dimensions: InlineArray<2, UInt64> = getDimensionsInline()
             // Legacy files use 2 dimensions and flatten XY coordinates
             let dim0 = Int(dimensions[0])
             // let dim1 = Int(dimensions[1])
@@ -672,6 +683,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
                 intoCubeDimension: [nLocations, UInt64(nTime)]
             )
         case 3:
+            let dimensions: InlineArray<3, UInt64> = getDimensionsInline()
             // File uses dimensions [ny,nx,ntime]
             guard ny == dimensions[0], nx == dimensions[1] else {
                 return
@@ -679,7 +691,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
             let x = UInt64(location.lowerBound % nx) ..< UInt64((location.upperBound - 1) % nx) + 1
             let y = UInt64(location.lowerBound / nx) ..< UInt64(location.lowerBound / nx + 1)
             let fileTime = UInt64(timeOffsets.file.lowerBound) ..< UInt64(timeOffsets.file.upperBound)
-            let range = [y, x, fileTime]
+            let range: InlineArray<3, Range<UInt64>> = [y, x, fileTime]
             do {
                 try await read(
                     into: &into,
@@ -692,6 +704,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
                 throw OmFileFormatSwiftError.omDecoder(error: "\(error) range=\(range) [ny=\(ny) nx=\(nx) nTime=\(nTime) location=\(location) nMembers=\(nMembers) level=\(level) timeOffsets=\(timeOffsets)]")
             }
         case 4:
+            let dimensions: InlineArray<4, UInt64> = getDimensionsInline()
             // File uses dimensions [ny,nx,nLevel,ntime]
             // print("4D \(dimensions.map{Int($0)}) ny\(ny) nx\(nx) nMembers\(nMembers) l\(level)")
             guard ny == dimensions[0], nx == dimensions[1], level < dimensions[2] else {
@@ -701,7 +714,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
             let y = UInt64(location.lowerBound / nx) ..< UInt64(location.lowerBound / nx + 1)
             let l = UInt64(level) ..< UInt64(level + 1)
             let fileTime = UInt64(timeOffsets.file.lowerBound) ..< UInt64(timeOffsets.file.upperBound)
-            let range = [y, x, l, fileTime]
+            let range: InlineArray<4, Range<UInt64>> = [y, x, l, fileTime]
             do {
                 try await read(
                     into: &into,
@@ -722,9 +735,9 @@ extension OmFileReaderArrayProtocol where OmType == Float {
     /// Note: `nTime` is the output array nTime. It is not the file nTime!
     /// /// TODO: nMembers variable is wrong if called via API controller. Aways 1
     func willNeed3D(ny: Int, nx: Int, nTime: Int, nMembers: Int, location: Range<Int>, level: Int, timeOffsets: (file: CountableRange<Int>, array: CountableRange<Int>)) async throws {
-        let dimensions = self.getDimensions()
-        switch dimensions.count {
+        switch self.getDimensionsCount() {
         case 2:
+            let dimensions: InlineArray<2, UInt64> = getDimensionsInline()
             // Legacy files use 2 dimensions and flatten XY coordinates
             let dim0 = Int(dimensions[0])
             // let dim1 = Int(dimensions[1])
@@ -742,6 +755,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
             let dim0Range = location.lowerBound * nLevels + level ..< location.lowerBound * nLevels + level + location.count
             try await willNeed(range: [dim0Range.toUInt64(), timeOffsets.file.toUInt64()])
         case 3:
+            let dimensions: InlineArray<3, UInt64> = getDimensionsInline()
             // File uses dimensions [ny,nx,ntime]
             guard ny == dimensions[0], nx == dimensions[1] else {
                 return
@@ -749,7 +763,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
             let x = UInt64(location.lowerBound % nx) ..< UInt64((location.upperBound - 1) % nx) + 1
             let y = UInt64(location.lowerBound / nx) ..< UInt64(location.lowerBound / nx + 1)
             let fileTime = UInt64(timeOffsets.file.lowerBound) ..< UInt64(timeOffsets.file.upperBound)
-            let range = [y, x, fileTime]
+            let range: InlineArray<3, Range<UInt64>> = [y, x, fileTime]
             do {
                 try await willNeed(range: range)
             } catch OmFileFormatSwiftError.omDecoder(let error) {
@@ -757,6 +771,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
                 throw OmFileFormatSwiftError.omDecoder(error: "\(error) range=\(range) [ny=\(ny) nx=\(nx) nTime=\(nTime) location=\(location) nMembers=\(nMembers) level=\(level) timeOffsets=\(timeOffsets)]")
             }
         case 4:
+            let dimensions: InlineArray<4, UInt64> = getDimensionsInline()
             // File uses dimensions [ny,nx,nLevel,ntime]
             guard ny == dimensions[0], nx == dimensions[1], level < dimensions[2] else {
                 return
@@ -765,7 +780,7 @@ extension OmFileReaderArrayProtocol where OmType == Float {
             let y = UInt64(location.lowerBound / nx) ..< UInt64(location.lowerBound / nx + 1)
             let l = UInt64(level) ..< UInt64(level + 1)
             let fileTime = UInt64(timeOffsets.file.lowerBound) ..< UInt64(timeOffsets.file.upperBound)
-            let range = [y, x, l, fileTime]
+            let range: InlineArray<4, Range<UInt64>> = [y, x, l, fileTime]
             do {
                 try await willNeed(range: range)
             } catch OmFileFormatSwiftError.omDecoder(let error) {

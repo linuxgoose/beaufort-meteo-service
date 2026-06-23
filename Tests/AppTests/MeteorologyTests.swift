@@ -4,6 +4,12 @@ import Testing
 @preconcurrency import SwiftEccodes
 
 @Suite struct MeteorologyTests {
+    @Test func thunderstormProbability() {
+        #expect(WeatherCode.calculateThunderstormProbability(convectivePrecipitation: 3, gusts: 6.1, cape: 550, liftedIndex: nil, convectiveInhibition: 9, pblHeight: 310, modelDtSeconds: 3600, latitude: 45) == 70.7493)
+        #expect(WeatherCode.calculateThunderstormProbability(convectivePrecipitation: 1, gusts: 2, cape: 450, liftedIndex: nil, convectiveInhibition: 22, pblHeight: 980, modelDtSeconds: 3600, latitude: 45) == 53.099743)
+        #expect(WeatherCode.calculateThunderstormProbability(convectivePrecipitation: 1, gusts: 2, cape: 450, liftedIndex: nil, convectiveInhibition: 22, pblHeight: 980, modelDtSeconds: 3600, latitude: 0) == 31.831455)
+    }
+    
     @Test func wetbulbTemperature() {
         #expect(Meteorology.wetBulbTemperature(temperature: 10, relativeHumidity: 50).isApproximatelyEqual(to: 5.10125499, absoluteTolerance: 0.001))
         #expect(Meteorology.wetBulbTemperature(temperature: 5, relativeHumidity: 90).isApproximatelyEqual(to: 3.99465138, absoluteTolerance: 0.001))
@@ -100,6 +106,17 @@ import Testing
         #expect(Meteorology.specificToRelativeHumidity(specificHumidity: [1.5], temperature: [-10], pressure: [750]) == [67.33522])
         // not really possible
         #expect(Meteorology.specificToRelativeHumidity(specificHumidity: [24.06], temperature: [23.00], pressure: [1013.25]) == [100])
+    }
+
+    @Test func airDensity() {
+        // ISA standard atmosphere: 15°C, 0% RH, 1013.25 hPa -> ~1.225 kg/m³
+        #expect(Meteorology.airDensity(temperature: 15, relativeHumidity: 0, pressure: 1013.25).isApproximatelyEqual(to: 1.225, absoluteTolerance: 0.001))
+        // Warm moist air is less dense
+        #expect(Meteorology.airDensity(temperature: 20, relativeHumidity: 50, pressure: 1013.25).isApproximatelyEqual(to: 1.1988, absoluteTolerance: 0.001))
+        // Cold dry air is denser
+        #expect(Meteorology.airDensity(temperature: 0, relativeHumidity: 0, pressure: 1013.25).isApproximatelyEqual(to: 1.2922, absoluteTolerance: 0.001))
+        // Low pressure
+        #expect(Meteorology.airDensity(temperature: 15, relativeHumidity: 0, pressure: 950).isApproximatelyEqual(to: 1.1485, absoluteTolerance: 0.001))
     }
 
     @Test func pressureLevelAltitude() {

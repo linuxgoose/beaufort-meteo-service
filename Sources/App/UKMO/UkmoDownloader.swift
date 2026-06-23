@@ -85,7 +85,7 @@ struct UkmoDownload: AsyncCommand {
         /// Process a range of runs
         if let timeinterval = signature.timeinterval {
             /*if signature.fixSolar {
-                // timeinterval devided by chunk time range
+                // timeinterval divided by chunk time range
                 let time = try Timestamp.parseRange(yyyymmdd: timeinterval)
                 try self.fixSolarFiles(application: context.application, domain: domain, timerange: time)
                 return
@@ -93,7 +93,7 @@ struct UkmoDownload: AsyncCommand {
 
             for run in try Timestamp.parseRange(yyyymmdd: timeinterval).toRange(dt: 86400).with(dtSeconds: 86400 / domain.runsPerDay) {
                 let handles = try await download(application: context.application, domain: domain, variables: variables, run: run, concurrent: nConcurrent, maxForecastHour: signature.maxForecastHour, server: signature.server, skipMissing: signature.skipMissing, uploadS3Bucket: nil)
-                try await GenericVariableHandle.convert(logger: logger, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: false, uploadS3Bucket: nil, uploadS3OnlyProbabilities: false, generateFullRun: generateFullRun)
+                try await GenericVariableHandle.convert(application: context.application, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: false, uploadS3Bucket: nil, uploadS3OnlyProbabilities: false, generateFullRun: generateFullRun)
             }
             return
         }
@@ -103,7 +103,7 @@ struct UkmoDownload: AsyncCommand {
         try await downloadElevation(application: context.application, domain: domain, run: run, server: signature.server, createNetcdf: signature.createNetcdf)
         let handles = try await download(application: context.application, domain: domain, variables: variables, run: run, concurrent: nConcurrent, maxForecastHour: signature.maxForecastHour, server: signature.server, skipMissing: signature.skipMissing, uploadS3Bucket: signature.uploadS3Bucket)
 
-        try await GenericVariableHandle.convert(logger: logger, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: signature.uploadS3OnlyProbabilities, generateFullRun: generateFullRun)
+        try await GenericVariableHandle.convert(application: context.application, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: signature.uploadS3OnlyProbabilities, generateFullRun: generateFullRun)
         logger.info("Finished in \(start.timeElapsedPretty())")
     }
 
@@ -251,7 +251,7 @@ struct UkmoDownload: AsyncCommand {
 
         /// Domain elevation field, needed to correct freezing level height
         let domainElevation = await {
-            guard let elevation = try? await domain.getStaticFile(type: .elevation, httpClient: curl.client, logger: logger)?.read(range: nil) else {
+            guard let elevation = try? await domain.getStaticFile(type: .elevation, httpClient: curl.client, logger: logger)?.read() else {
                 fatalError("cannot read elevation for domain \(domain)")
             }
             return elevation.map { $0 == -999 ? 0 : $0 }
@@ -265,10 +265,14 @@ struct UkmoDownload: AsyncCommand {
         let handles: [GenericVariableHandle] = try await timestamps.enumerated().asyncFlatMap { (i,timestamp) -> [GenericVariableHandle] in
             logger.info("Process timestamp \(timestamp.iso8601_YYYY_MM_dd_HH_mm)")
             let forecastHour = (timestamp.timeIntervalSince1970 - run.timeIntervalSince1970) / 3600
+            let previousHour = (timestamps[max(0, i-1)].timeIntervalSince1970 - run.timeIntervalSince1970) / 3600
             if let maxForecastHour, forecastHour > maxForecastHour {
                 return []
             }
+            let inMemory = VariablePerMemberStorage<UkmoSurfaceVariable>()
             let writer = OmSpatialTimestepWriter(domain: domain, run: run, time: timestamp, storeOnDisk: !isEnsemble, realm: nil, logger: logger, ensembleMeanDomain: domain.ensembleMeanDomain)
+            let writerProbabilities = domain.countEnsembleMember > 1 ? OmSpatialTimestepWriter(domain: domain, run: run, time: timestamp, storeOnDisk: true, realm: nil, logger: logger) : nil
+
             try await variables.foreachConcurrent(nConcurrent: concurrent) { variable in
                 if variable.skipHour0, timestamp == run {
                     return
@@ -281,8 +285,8 @@ struct UkmoDownload: AsyncCommand {
                 let memory = try await curl.downloadInMemoryAsync(url: url, minSize: 1024)
                 let data = try memory.readUkmoNetCDF()
                 logger.info("Processing \(data.name) [\(data.unit)]")
-                for (level, member, data) in data.data {
-                    var data = data.data
+                for (level, member, array2d) in data.data {
+                    var data = array2d.data
                     if let scaling = variable.multiplyAdd {
                         data.multiplyAdd(multiply: scaling.scalefactor, add: scaling.offset)
                     }
@@ -318,13 +322,26 @@ struct UkmoDownload: AsyncCommand {
                                 }
                             }
                         }
+                        // Keep precip in memory for probability
+                        if domain.countEnsembleMember > 1 && variable == .precipitation {
+                            await inMemory.set(variable: variable, timestamp: timestamp, member: member, data: array2d)
+                        }
                     }
                     let variable = variable.withLevel(level: level)
                     try await writer.write(member: member, variable: variable, data: data)
                 }
             }
+            if let writerProbabilities {
+                logger.info("Calculating precipitation probability")
+                try await inMemory.calculatePrecipitationProbability(
+                    precipitationVariable: .precipitation,
+                    dtHoursOfCurrentStep: forecastHour - previousHour,
+                    writer: writerProbabilities
+                )
+            }
+            
             let completed = i == timestamps.count - 1
-            return try await writer.finalise(completed: completed, validTimes: Array(timestamps[0...i]), uploadS3Bucket: uploadS3Bucket)
+            return try await writer.finalise(application: application, completed: completed, validTimes: Array(timestamps[0...i]), uploadS3Bucket: uploadS3Bucket) + (writerProbabilities?.finalise(application: application, completed: completed, validTimes: Array(timestamps[0...i]), uploadS3Bucket: uploadS3Bucket) ?? [])
         }
         await curl.printStatistics()
         return handles

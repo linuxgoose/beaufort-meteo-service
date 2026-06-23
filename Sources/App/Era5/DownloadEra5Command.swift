@@ -59,11 +59,9 @@ struct DownloadEra5Command: AsyncCommand {
     }
 
     func run(using context: CommandContext, signature: Signature) async throws {
-        let logger = context.application.logger
-
         let domain = try CdsDomain.load(rawValue: signature.domain)
 
-        let variables: [GenericVariable]
+        let variables: [any GenericVariable]
         switch domain {
         case .cerra:
             variables = try CerraVariable.load(commaSeparatedOptional: signature.onlyVariables) ?? CerraVariable.allCases
@@ -87,7 +85,7 @@ struct DownloadEra5Command: AsyncCommand {
         /// Select the desired timerange, or use last 14 day
         let timeinterval = try signature.getTimeinterval(domain: domain)
         let handles = try await downloadDailyFiles(application: context.application, cdskey: cdskey, email: signature.email, timeinterval: timeinterval, domain: domain, variables: variables, concurrent: concurrent, forceUpdate: signature.force)
-        try await GenericVariableHandle.convert(logger: logger, domain: domain, createNetcdf: signature.createNetcdf, run: handles.min(by: { $0.time.range.lowerBound < $1.time.range.lowerBound })?.time.range.lowerBound ?? Timestamp(0), handles: handles, concurrent: concurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: false)
+        try await GenericVariableHandle.convert(application: context.application, domain: domain, createNetcdf: signature.createNetcdf, run: handles.min(by: { $0.time.range.lowerBound < $1.time.range.lowerBound })?.time.range.lowerBound ?? Timestamp(0), handles: handles, concurrent: concurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: false)
     }
 
     /// Generate seasonal averages for bias corrections for CMIP climate data
@@ -333,7 +331,7 @@ struct DownloadEra5Command: AsyncCommand {
         try elevation.writeOmFile2D(file: domain.surfaceElevationFileOm.getFilePath(), grid: domain.grid, createNetCdf: createNetCdf)
     }
 
-    func downloadDailyFiles(application: Application, cdskey: String, email: String?, timeinterval: TimerangeDt, domain: CdsDomain, variables: [GenericVariable], concurrent: Int, forceUpdate: Bool) async throws -> [GenericVariableHandle] {
+    func downloadDailyFiles(application: Application, cdskey: String, email: String?, timeinterval: TimerangeDt, domain: CdsDomain, variables: [any GenericVariable], concurrent: Int, forceUpdate: Bool) async throws -> [GenericVariableHandle] {
         switch domain {
         case .era5_land, .era5, .era5_ocean, .era5_ensemble:
             let variables = variables.map {
@@ -451,7 +449,7 @@ struct DownloadEra5Command: AsyncCommand {
 
             do {
                 let h = try await curl.withCdsApi(dataset: domain.cdsDatasetName, query: query, apikey: cdskey) { messages in
-                    return try await messages.mapStream(nConcurrent: concurrent) { message -> GenericVariableHandle? in
+                    return try await messages.mapConcurrent(nConcurrent: concurrent) { message -> GenericVariableHandle? in
                         let attributes = try GribAttributes(message: message)
                         let timestamp = attributes.timestamp
                         guard let variable = Era5Variable.fromGrib(attributes: attributes) else {
@@ -478,7 +476,7 @@ struct DownloadEra5Command: AsyncCommand {
                         try FileManager.default.removeItemIfExists(at: omFile)
                         let fn = try writer.write(file: omFile, compressionType: .pfor_delta2d_int16, scalefactor: variable.scalefactor, all: grib2d.array.data)
                         return try await GenericVariableHandle(variable: variable, time: timestamp, member: 0, fn: fn, domain: domain)
-                    }.collect().compactMap({ $0 })
+                    }.compactMap({ $0 })
                 }
                 handles.append(contentsOf: h)
             } catch CdsApiError.restrictedAccessToValidData {
@@ -602,7 +600,7 @@ struct DownloadEra5Command: AsyncCommand {
             do {
                 let h = try await curl.withEcmwfApi(query: query, email: email, apikey: key) { messages in
                     let deaverager = GribDeaverager()
-                    return try await messages.mapStream(nConcurrent: concurrent) { message -> GenericVariableHandle? in
+                    return try await messages.mapConcurrent(nConcurrent: concurrent) { message -> GenericVariableHandle? in
                         let attributes = try GribAttributes(message: message)
                         let timestamp = attributes.timestamp
                         guard let variable = Era5Variable.fromGrib(attributes: attributes) else {
@@ -644,7 +642,7 @@ struct DownloadEra5Command: AsyncCommand {
                         try FileManager.default.removeItemIfExists(at: omFile)
                         let fn = try writer.write(file: omFile, compressionType: .pfor_delta2d_int16, scalefactor: variable.scalefactor, all: grib2d.array.data)
                         return try await GenericVariableHandle(variable: variable, time: timestamp, member: 0, fn: fn, domain: domain)
-                    }.collect().compactMap({ $0 })
+                    }.compactMap({ $0 })
                 }
                 handles.append(contentsOf: h)
             } catch EcmwfApiError.restrictedAccessToValidData {
@@ -720,7 +718,7 @@ struct DownloadEra5Command: AsyncCommand {
                     // Deaccumulate data on the fly. Keep previous timestep in memory
                     let deaverager = GribDeaverager()
 
-                    return try await messages.mapStream(nConcurrent: concurrent) { message -> GenericVariableHandle? in
+                    return try await messages.mapConcurrent(nConcurrent: concurrent) { message -> GenericVariableHandle? in
                         guard let shortName = message.get(attribute: "shortName"),
                               let stepRange = message.get(attribute: "stepRange"),
                               let stepType = message.get(attribute: "stepType")
@@ -755,7 +753,7 @@ struct DownloadEra5Command: AsyncCommand {
                         try FileManager.default.removeItemIfExists(at: omFile)
                         let fn = try writer.write(file: omFile, compressionType: .pfor_delta2d_int16, scalefactor: variable.scalefactor, all: grib2d.array.data)
                         return try await GenericVariableHandle(variable: variable, time: timestamp, member: 0, fn: fn, domain: domain)
-                    }.collect().compactMap({ $0 })
+                    }.compactMap({ $0 })
                 }
                 handles.append(contentsOf: h)
             }

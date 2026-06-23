@@ -658,6 +658,10 @@ extension VariableAndPreviousDay: FlatBuffersVariable {
             return .init(variable: .temperature, aggregation: .spread, altitude: 120)
         case .snow_depth_water_equivalent_spread:
             return .init(variable: .snowDepthWaterEquivalent, aggregation: .spread)
+        case .total_column_water:
+            return .init(variable: .totalColumnWater, previousDay: previousDay)
+        case .air_density_2m:
+            return .init(variable: .airDensity, altitude: 2)
         }
     }
 }
@@ -964,7 +968,7 @@ extension MultiDomains {
             return .meteofranceAromeFranceHd
         case .jma_seamless, .jma_mix:
             return .jmaSeamless
-        case .jma_msm:
+        case .jma_msm, .jma_msm_upper_level:
             return .jmaMsm
         case .jms_gsm, .jma_gsm:
             return .jmaGsm
@@ -992,6 +996,8 @@ extension MultiDomains {
             return .metnoNordic
         case .geosphere_arome_austria:
             return .geosphereAromeAustria
+        case .chmi_aladin_cz_1km:
+            return .chmiAladinCz1km
         case .era5_seamless, .copernicus_era5_seamless:
             return .era5Seamless
         case .era5, .copernicus_era5:
@@ -1036,6 +1042,14 @@ extension MultiDomains {
             return .ecmwfIfs025
         case .ecmwf_aifs025:
             return .ecmwfAifs025
+        case .ecmwf_ifs_europe_ensemble:
+            return .ecmwfIfsEuropeEnsemble
+        case .ecmwf_ifs_europe_ensemble_mean:
+            return .ecmwfIfsEuropeEnsembleMean
+        case .ecmwf_aifs_europe_ensemble:
+            return .ecmwfAifsEuropeEnsemble
+        case .ecmwf_aifs_europe_ensemble_mean:
+            return .ecmwfAifsEuropeEnsembleMean
         case .gfs_graphcast025, .ncep_gfs_graphcast025:
             return .gfsGraphcast025
         case .gfs025, .ncep_gfs025:
@@ -1122,6 +1136,8 @@ extension MultiDomains {
             return .gfs05
         case .bom_access_global_ensemble:
             return .bomAccessGlobalEnsemble
+        case .google_weathernext2_ensemble:
+            return .googleWeathernext2Ensemble
         case .ukmo_global_ensemble_20km:
             return .ukmoGlobalEnsemble20km
         case .ukmo_uk_ensemble_2km:
@@ -1230,6 +1246,8 @@ extension MultiDomains {
             return .cmcGemGepsEnsembleMean
         case .bom_access_global_ensemble_mean:
             return .bomAccessGlobalEnsembleMean
+        case .google_weathernext2_ensemble_mean:
+            return .googleWeathernext2EnsembleMean
         case .ukmo_global_ensemble_mean_20km:
             return .ukmoGlobalEnsembleMean20km
         case .ukmo_uk_ensemble_mean_2km:
@@ -1243,9 +1261,7 @@ extension MultiDomains {
         case .ncep_gefswave025_ensemble_mean:
             return .ncepGefswave025EnsembleMean
         case .geosphere_seamless:
-            // TODO register in SDK
-            return .geosphereAromeAustria
+            return .geosphereSeamless
         }
     }
 }
-

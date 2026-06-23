@@ -1,4 +1,6 @@
 import Foundation
+import Vapor
+import AsyncHTTPClient
 import Logging
 
 /**
@@ -36,12 +38,17 @@ enum DomainRegistry: String, CaseIterable {
     case copernicus_era5_land_daily
     case copernicus_era5_ocean
 
+    /// retired 2026-05-27
     case cmc_gem_gdps
     case cmc_gem_geps
     case cmc_gem_geps_ensemble_mean
     case cmc_gem_hrdps
     case cmc_gem_hrdps_west
+    /// retired 2026-05-27
     case cmc_gem_rdps
+    case cmc_gem_rdps_10km
+    case cmc_gem_gdps_15km
+    case cmc_gem_gdps_15km_upper_level
 
     case ncep_gfs013
     case ncep_gfs025
@@ -90,6 +97,8 @@ enum DomainRegistry: String, CaseIterable {
     case dwd_sis_europe_africa_v4
 
     case ecmwf_ifs
+    case ecmwf_ifs_europe_ensemble
+    case ecmwf_ifs_europe_ensemble_mean
     case ecmwf_ifs04
     case ecmwf_ifs04_ensemble
     case ecmwf_ifs025
@@ -99,6 +108,8 @@ enum DomainRegistry: String, CaseIterable {
     case ecmwf_aifs025_single
     case ecmwf_aifs025_ensemble
     case ecmwf_aifs025_ensemble_mean
+    case ecmwf_aifs_europe_ensemble
+    case ecmwf_aifs_europe_ensemble_mean
     case ecmwf_wam
     case ecmwf_wam025
     case ecmwf_wam025_ensemble
@@ -125,12 +136,16 @@ enum DomainRegistry: String, CaseIterable {
 
     case geosphere_arome_austria
 
+    case chmi_aladin_cz_1km
+
     case nasa_imerg_daily
 
     case cma_grapes_global
 
     case bom_access_global
     case bom_access_global_ensemble
+    case google_weathernext2_ensemble
+    case google_weathernext2_ensemble_mean
 
     case cmip_CMCC_CM2_VHR4
     case cmip_EC_Earth3P_HR
@@ -211,6 +226,8 @@ enum DomainRegistry: String, CaseIterable {
             return 3
         case .bom_access_global_ensemble:
             return 3
+        case .google_weathernext2_ensemble:
+            return 3
         case .meteoswiss_icon_ch1_ensemble, .meteoswiss_icon_ch2_ensemble:
             return 3
         case .ecmwf_ec46:
@@ -252,6 +269,14 @@ enum DomainRegistry: String, CaseIterable {
             return Dem90()
         case .ecmwf_ifs:
             return EcmwfEcpdsDomain.ifs
+        case .ecmwf_ifs_europe_ensemble:
+            return EcmwfEcpdsDomain.ifs_europe_ensemble
+        case .ecmwf_ifs_europe_ensemble_mean:
+            return EcmwfEcpdsDomain.ifs_europe_ensemble_mean
+        case .ecmwf_aifs_europe_ensemble:
+            return EcmwfEcpdsDomain.aifs_europe_ensemble
+        case .ecmwf_aifs_europe_ensemble_mean:
+            return EcmwfEcpdsDomain.aifs_europe_ensemble_mean
         case .ecmwf_wam:
             return EcmwfEcpdsDomain.wam
         case .ecmwf_ifs_analysis_long_window:
@@ -280,6 +305,12 @@ enum DomainRegistry: String, CaseIterable {
             return GemDomain.gem_hrdps_west
         case .cmc_gem_rdps:
             return GemDomain.gem_regional
+        case .cmc_gem_rdps_10km:
+            return GemDomain.gem_rdps_10km
+        case .cmc_gem_gdps_15km:
+            return GemDomain.gem_gdps_15km
+        case .cmc_gem_gdps_15km_upper_level:
+            return GemDomain.gem_gdps_15km_upper_level
         case .ncep_gfs013:
             return GfsDomain.gfs013
         case .ncep_gfs025:
@@ -374,6 +405,8 @@ enum DomainRegistry: String, CaseIterable {
             return MetNoDomain.nordic_pp
         case .geosphere_arome_austria:
             return GeoSphereDomain.arome_austria
+        case .chmi_aladin_cz_1km:
+            return ChmiDomain.aladin_cz_1km
         case .nasa_imerg_daily:
             return SatelliteDomain.imerg_daily
         case .cmip_CMCC_CM2_VHR4:
@@ -400,6 +433,10 @@ enum DomainRegistry: String, CaseIterable {
             return BomDomain.access_global
         case .bom_access_global_ensemble:
             return BomDomain.access_global_ensemble
+        case .google_weathernext2_ensemble:
+            return WeatherNextDomain.weathernext_global
+        case .google_weathernext2_ensemble_mean:
+            return WeatherNextDomain.weathernext_global_ensemble_mean
         case .meteofrance_arome_france0025_15min:
             return MeteoFranceDomain.arome_france_15min
         case .meteofrance_arome_france_hd_15min:
@@ -511,30 +548,39 @@ enum DomainRegistry: String, CaseIterable {
             return UkmoDomain.uk_ensemble_mean_2km
         }
     }
+    
+    /// Get meta information of a specific run
+    func getFullRunMeta(client: HTTPClient?, logger: Logger, run: Timestamp) async throws -> FullRunMetaJson? {
+        return try await RemoteFileManager.instance.get(
+            file: FullRunMetaFile.run(self, run),
+            client: client,
+            logger: logger
+        )
+    }
 }
 
-extension Process {
-    static func awsSync(src: String, dest: String, exclude: [String] = ["*~"], profile: String? = nil) throws {
-        var args = ["s3", "sync", "--no-progress"]
-        for exclude in exclude {
-            args.append(contentsOf: ["--exclude", exclude])
-        }
-        if let profile {
-            args.append(contentsOf: ["--profile", profile])
-        }
-        args.append(contentsOf: [src, dest])
-        try spawnRetriedNoFail(cmd: "aws", args: args)
-    }
-    
-    static func awsCopy(src: String, dest: String, profile: String? = nil) throws {
-        var args = ["s3", "cp", "--no-progress"]
-        if let profile {
-            args.append(contentsOf: ["--profile", profile])
-        }
-        args.append(contentsOf: [src, dest])
-        try spawnRetriedNoFail(cmd: "aws", args: args)
-    }
-}
+//extension Process {
+//    static func awsSync(src: String, dest: String, exclude: [String] = ["*~"], profile: String? = nil) throws {
+//        var args = ["s3", "sync", "--no-progress"]
+//        for exclude in exclude {
+//            args.append(contentsOf: ["--exclude", exclude])
+//        }
+//        if let profile {
+//            args.append(contentsOf: ["--profile", profile])
+//        }
+//        args.append(contentsOf: [src, dest])
+//        try spawnRetriedNoFail(cmd: "aws", args: args)
+//    }
+//    
+//    static func awsCopy(src: String, dest: String, profile: String? = nil) throws {
+//        var args = ["s3", "cp", "--no-progress"]
+//        if let profile {
+//            args.append(contentsOf: ["--profile", profile])
+//        }
+//        args.append(contentsOf: [src, dest])
+//        try spawnRetriedNoFail(cmd: "aws", args: args)
+//    }
+//}
 
 extension DomainRegistry {
     var bucketName: String {
@@ -577,57 +623,73 @@ extension DomainRegistry {
     func parseBucket(_ buckets: String) -> [(bucket: String, profile: String?)] {
         return buckets.split(separator: ",").map { bucket in
             let bucketSplit = bucket.split(separator: "@")
+            if bucketSplit.count == 3 {
+                // http://user:pw@something.com/@profile
+                return (bucketSplit[0]+"@"+bucketSplit[1], String(bucketSplit[2]))
+            }
             let bucket = String(bucketSplit[0].replacing("MODEL", with: bucketName))
             let profile = bucketSplit.count > 1 ? String(bucketSplit[1]) : nil
+            let profileUpper = profile.map {"_\($0.uppercased())"} ?? ""
+            
+            // An environment variable may overwrite the S3 credentials
+            if let credentials = Environment.get("S3_CREDENTIALS_\(bucket.uppercased())\(profileUpper)") {
+                return (credentials, profile)
+            }
+            
             return (bucket, profile)
         }
     }
     
     /// Upload all data to a specified S3 bucket
-    func syncToS3(logger: Logger, bucket: String, variables: [any GenericVariable]?) async throws {
+    func syncToS3(application: Application, bucket: String, variables: [any GenericVariable]?) async throws {
+        let logger = application.logger
         let dir = rawValue
         if let variables {
             let vDirectories = variables.map { $0.omFileName.file } + ["static"]
-            logger.info("AWS upload to bucket \(bucket)")
             for variable in vDirectories {
                 let src = "\(OpenMeteo.dataDirectory)\(dir)/\(variable)"
                 if !FileManager.default.fileExists(atPath: src) {
                     continue
                 }
-                try await parseBucket(bucket).foreachConcurrent(nConcurrent: 4) { (bucket, profile) in
-                    let startTimeAws = DispatchTime.now()
-                    if variable.contains("_previous_day") && bucket == "openmeteo" && profile == nil {
+                for (bucket, profile) in parseBucket(bucket) {
+                    if variable.contains("_previous_day") && ((bucket == "openmeteo" && profile == nil) || profile == "aws") {
                         // do not upload data from past days yet
-                        return
+                        continue
                     }
-                    try Process.awsSync(
-                        src: src,
-                        dest: "s3://\(bucket)/data/\(dir)/\(variable)",
-                        profile: profile
+                    logger.info("AWS upload [Bucket \(bucket.stripHttpPassword()), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
+                    await application.s3UploadManager.sync(
+                        client: application.http1Client,
+                        bucketEndpoint: bucket,
+                        localDirectory: src,
+                        server: bucket,
+                        basePath: "data/\(dir)/\(variable)"
                     )
-                    logger.info("AWS upload completed in \(startTimeAws.timeElapsedPretty()) [Bucket \(bucket), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
+                    logger.info("AWS upload queued [Bucket \(bucket.stripHttpPassword()), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
                 }
             }
 
         } else {
             let src = "\(OpenMeteo.dataDirectory)\(dir)"
-            try await parseBucket(bucket).foreachConcurrent(nConcurrent: 4) { (bucket, profile) in
-                let exclude = bucket == "openmeteo" && profile == nil ? ["*~", "*_previous_day*", "*rolling.om"] : ["*~", "*rolling.om"]
-                logger.info("AWS upload to bucket \(bucket)")
-                let startTimeAws = DispatchTime.now()
-                try Process.awsSync(
-                    src: src,
-                    dest: "s3://\(bucket)/data/\(dir)",
-                    exclude: exclude,
-                    profile: profile
+            for (bucket, profile) in parseBucket(bucket) {
+                logger.info("AWS upload [Bucket \(bucket.stripHttpPassword()), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
+                let exclude = (bucket == "openmeteo" && profile == nil) || profile == "aws" ? ["*~", "*_previous_day*", "*rolling.om"] : self == .google_weathernext2_ensemble ? ["*~"] : ["*~", "*rolling.om"]
+                logger.info("AWS upload to bucket \(bucket.stripHttpPassword())")
+                await application.s3UploadManager.sync(
+                    client: application.http1Client,
+                    bucketEndpoint: bucket,
+                    localDirectory: src,
+                    server: bucket,
+                    basePath: "data/\(dir)",
+                    exclude: exclude
                 )
-                logger.info("AWS upload completed in \(startTimeAws.timeElapsedPretty()) [Bucket \(bucket), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
+                logger.info("AWS upload queued [Bucket \(bucket.stripHttpPassword()), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
             }
         }
     }
     
     /// Upload time-series optimised per RUN files to S3 `/data_run/<domain>/<run>/<variable>.om`
-    func syncToS3PerRun(logger: Logger, bucket: String, run: Timestamp) throws {
+    func syncToS3PerRun(application: Application, bucket: String, run: Timestamp, skipMeta: Bool) async throws {
+        let logger = application.logger
         let dir = rawValue
         guard let directory = OpenMeteo.dataRunDirectory else {
             return
@@ -635,31 +697,22 @@ extension DomainRegistry {
         let timeFormatted = run.format_directoriesYYYYMMddhhmm
         for (bucket, profile) in parseBucket(bucket) {
             let src = "\(directory)\(dir)/\(timeFormatted)/"
-            let dest = "s3://\(bucket)/data_run/\(dir)/\(timeFormatted)/"
+            let destRel = "data_run/\(dir)/\(timeFormatted)/"
+            
             if !FileManager.default.fileExists(atPath: src) {
                 continue
             }
-            let startTimeAws = DispatchTime.now()
-            logger.info("AWS upload to bucket \(bucket)")
-            try Process.awsSync(
-                src: src,
-                dest: dest,
-                exclude: ["*~", "meta.json"],
-                profile: profile
+            logger.info("AWS upload to bucket \(bucket.stripHttpPassword())")
+            
+            /// Only one sync required, because JSON files are committed last and on error, the process would die
+            await application.s3UploadManager.sync(
+                client: application.http1Client,
+                bucketEndpoint: bucket,
+                localDirectory: src,
+                server: bucket,
+                basePath: destRel
             )
-            try Process.awsCopy(
-                src: "\(src)meta.json",
-                dest: "\(dest)meta.json",
-                profile: profile
-            )
-            // Additional sync to make sure everything is synced
-            try Process.awsSync(
-                src: "\(directory)\(dir)/",
-                dest: "s3://\(bucket)/data_run/\(dir)/",
-                exclude: ["*~"],
-                profile: profile
-            )
-            logger.info("AWS upload completed in \(startTimeAws.timeElapsedPretty()) [Bucket \(bucket), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
+            logger.info("AWS upload queued [Bucket \(bucket.stripHttpPassword()), profile \(profile ?? ""), time \(Timestamp.now().iso8601_YYYY_MM_dd_HH_mm)]")
         }
     }
 }

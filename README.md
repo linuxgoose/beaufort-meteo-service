@@ -1,6 +1,6 @@
-# 🌤 Open-Meteo Weather API
+﻿# 🌤 Open-Meteo Weather API
 
-[![Test](https://github.com/open-meteo/open-meteo/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/open-meteo/open-meteo/actions/workflows/test.yml) [![GitHub license](https://img.shields.io/github/license/open-meteo/open-meteo)](https://github.com/open-meteo/open-meteo/blob/main/LICENSE) [![license: CC BY 4.0](https://img.shields.io/badge/license-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/) [![Twitter](https://img.shields.io/badge/follow-%40open_meteo-1DA1F2?logo=twitter&style=social)](https://twitter.com/open_meteo) [![Mastodon](https://img.shields.io/mastodon/follow/109320332765909743?domain=https%3A%2F%2Ffosstodon.org)](https://fosstodon.org/@openmeteo) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7970649.svg)](https://doi.org/10.5281/zenodo.7970649)
+[![Test](https://github.com/open-meteo/open-meteo/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/open-meteo/open-meteo/actions/workflows/test.yml) [![GitHub license](https://img.shields.io/github/license/open-meteo/open-meteo)](https://github.com/open-meteo/open-meteo/blob/main/LICENSE) [![license: CC BY 4.0](https://img.shields.io/badge/license-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/) [![Twitter](https://img.shields.io/badge/follow-%40open__meteo-1DA1F2?logo=x&style=flat)](https://twitter.com/open_meteo) [![Mastodon](https://img.shields.io/badge/Mastodon-%40openmeteo-6364FF?logo=mastodon&style=flat)](https://fosstodon.org/@openmeteo) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.7970649-blue)](https://doi.org/10.5281/zenodo.7970649)
 
 Open-Meteo is an open-source weather API and offers free access for non-commercial use. No API key is required. You can use it immediately!
 
@@ -42,6 +42,7 @@ The API is available for non-commercial use at no cost. Despite being free of ch
 
 Apps:
 
+- [AirIndex Today](https://airindex.today/) Air quality forecasts across the globe.
 - [Alpine Conditions](https://www.alpineconditions.com) Allows a user to compare multiple models at once & create ensemble forecasts for any location
 - [BusyRunner](https://busyrunner.com/) Allows users to plan their weekly runs based on the weather.
 - [Breezy Weather](https://github.com/breezy-weather/breezy-weather) A feature-rich, free and open source Material 3 Expressive Android weather app.
@@ -54,8 +55,9 @@ Apps:
 - [FlyDecision](https://flydecision.com/) Automated weather forecast analysis and flight condition scoring for paragliding pilots, with interactive takeoff mapping.
 - [Home Assistant](https://www.home-assistant.io/integrations/open_meteo/) A popular open source smart home platform.
 - [Lively Weather](https://www.rocksdanister.com/weather) Windows native weather app powered by DirectX12 animations.
-- [LunaLink](https://www.lunalink.de) A site for hunters, fishermen and nature observers: It provides sun and moon values ​​(including moon brightness) as well as the weather for individual locations in Central Europe.
+- [LunaLink](https://www.lunalink.de) A site for hunters, fishermen and nature observers: It provides sun and moon values (including moon brightness) as well as the weather for individual locations in Central Europe.
 - [Meteo-Fly](https://meteo-fly.com) Free flight-weather charts for paraglider & hang-glider pilots.
+- [Meteograph](https://github.com/timbortnik/widget) Open-source Android home-screen weather widget showing a meteogram with 48-hour and 7-day forecasts; no ads, no tracking, no account. ([Google Play](https://play.google.com/store/apps/details?id=org.bortnik.meteogram))
 - [MeteoHist](https://yotka.org/meteo-hist) A web app to create interactive temperature and precipitation graphs for places around the world
 - [monkeysnow](https://github.com/kcluit/monkeysnow) The most customizable resort/snow forecast website for ski and board!
 - [Mousam](https://amit9838.github.io/mousam/) A weather app for GNU/Linux that displays the weather at a glance
@@ -83,6 +85,7 @@ Apps:
 - [WeatherGraph](https://weathergraph.app) Apple Watch App
 - [WeatherMaster](https://github.com/PranshulGG/WeatherMaster) A Weather app for android inspired by the Google Pixel weather app.
 - [Weatherian](https://weatherian.com/) Multi-model meteogram (multi-platform)
+- [Weather Journey](https://weatherjourney.com/) Historical weather records, temperature trends & climate anomalies for 6,000+ cities since 1940.
 - [weewx-DWD](https://github.com/roe-dl/weewx-DWD) Weather forecasts etc. for WeeWX
 - [WetBulb](https://github.com/Isma1306/wetbulb-forecast) A simple app that shows you the wetbulb temp 24h forecast and tells you if it is dangerous.
 - [WorldWeatherMonitor](https://world-weather-monitor.vercel.app/) An interactive world weather map that displays real-time weather conditions for cities around the globe.
@@ -97,7 +100,7 @@ Repositories:
 - [Weather-Cli](https://github.com/Rayrsn/Weather-Cli) A CLI program written in golang that allows you to get weather information from the terminal
 - [WeatherReport.jl](https://github.com/vnegi10/WeatherReport.jl) A simple weather app for the Julia REPL
 - [wthrr-the-weathercrab](https://github.com/tobealive/wthrr-the-weathercrab) Weather companion for the terminal
-- [weather-cli-dualprovider](https://github.com/jimishol/weather-cli-dualprovider) Minimal Bash CLI (single-file core; requires weather.en) fetching Open‑Meteo forecasts with a fallback provider; localized WMO descriptions. License: GPL‑3.0.
+- [weather-cli-dualprovider](https://github.com/jimishol/weather-cli-dualprovider) Minimal Bash CLI (single-file core; requires weather.en) fetching Open-Meteo forecasts with a fallback provider; localized WMO descriptions. License: GPL-3.0.
 
 Other:
 

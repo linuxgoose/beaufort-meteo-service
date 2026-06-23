@@ -32,7 +32,12 @@ final class OmHttpReaderBackend: OmFileReaderBackend, Sendable {
     
     /// Timestamp when the last data was successfully fetched from the backend.
     var lastValidated: Timestamp {
-        return Timestamp(lastValidatedAtomic.load(ordering: .relaxed))
+        get {
+            return Timestamp(lastValidatedAtomic.load(ordering: .relaxed))
+        }
+        set {
+            lastValidatedAtomic.store(newValue.timeIntervalSince1970, ordering: .relaxed)
+        }
     }
     
     typealias DataType = ByteBuffer
@@ -104,8 +109,7 @@ final class OmHttpReaderBackend: OmFileReaderBackend, Sendable {
         try request.applyS3Credentials()
         logger.debug("Getting data range \(offset)-\(offset + count - 1) from \(request.url)")
         let backoff = ExponentialBackOff(factor: .milliseconds(500), maximum: .seconds(5))
-        let response = try await client.executeRetry(request, logger: logger, deadline: .seconds(30), timeoutPerRequest: .seconds(10), backOffSettings: backoff)
-        let buffer = try await response.body.collect(upTo: count)
+        let buffer = try await client.executeRetryAndCollect(request, logger: logger, upTo: count, deadline: .seconds(30), timeoutPerRequest: .seconds(10), backOffSettings: backoff)
         lastValidatedAtomic.store(Timestamp.now().timeIntervalSince1970, ordering: .relaxed)
         return buffer
     }

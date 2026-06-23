@@ -166,7 +166,7 @@ extension Application {
 
 // configures your application
 public func configure(_ app: Application) throws {
-    TimeZone.ReferenceType.default = TimeZone(abbreviation: "GMT")!
+    TimeZone.ReferenceType.default = TimeZone.gmt
 
     let corsConfiguration = CORSMiddleware.Configuration(
         allowedOrigin: .all,
@@ -203,6 +203,7 @@ public func configure(_ app: Application) throws {
     app.asyncCommands.use(JmaDownload(), as: "download-jma")
     app.asyncCommands.use(MetNoDownloader(), as: "download-metno")
     app.asyncCommands.use(GeoSphereDownloader(), as: "download-geosphere")
+    app.asyncCommands.use(ChmiDownload(), as: "download-chmi")
     app.asyncCommands.use(KmaDownload(), as: "download-kma")
     app.asyncCommands.use(GloFasDownloader(), as: "download-glofas")
     app.asyncCommands.use(GemDownload(), as: "download-gem")
@@ -213,8 +214,10 @@ public func configure(_ app: Application) throws {
     app.asyncCommands.use(ExportCommand(), as: "export")
     app.asyncCommands.use(MergeYearlyCommand(), as: "merge-yearly")
     app.asyncCommands.use(ConvertOmCommand(), as: "convert-om")
+    app.asyncCommands.use(ValidateOmFilesCommand(), as: "validate-om-files")
     app.asyncCommands.use(DownloadEcmwfSeasCommand(), as: "download-ecmwf-seas")
     app.asyncCommands.use(DwdSisDownloader(), as: "download-dwd-sis")
+    app.asyncCommands.use(DownloadWeatherNextCommand(), as: "download-weathernext")
 
     app.http.server.configuration.hostname = "0.0.0.0"
 
@@ -247,7 +250,7 @@ public func configure(_ app: Application) throws {
     // Those background tasks are not executed in parallel. The delay is after the call completes
     app.lifecycle.repeatedTask(
         initialDelay: .seconds(0),
-        delay: .seconds(10),
+        delay: .seconds(1),
         RemoteFileManager.instance.backgroundTask
     )
 
