@@ -61,7 +61,7 @@ struct DownloadBomCommand: AsyncCommand {
         try await downloadEnsemble(application: context.application, domain: domain, run: run, server: server, concurrent: nConcurrent, skipFilesIfExisting: signature.skipExisting, uploadS3Bucket: signature.uploadS3Bucket) : signature.upperLevel ?
             try await downloadModelLevel(application: context.application, domain: domain, run: run, server: server, concurrent: nConcurrent, skipFilesIfExisting: signature.skipExisting, uploadS3Bucket: signature.uploadS3Bucket) :
             try await download(application: context.application, domain: domain, run: run, server: server, concurrent: nConcurrent, skipFilesIfExisting: signature.skipExisting, uploadS3Bucket: signature.uploadS3Bucket)
-        try await GenericVariableHandle.convert(logger: logger, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: signature.uploadS3OnlyProbabilities, generateFullRun: generateFullRun)
+        try await GenericVariableHandle.convert(application: context.application, domain: domain, createNetcdf: signature.createNetcdf, run: run, handles: handles, concurrent: nConcurrent, writeUpdateJson: true, uploadS3Bucket: signature.uploadS3Bucket, uploadS3OnlyProbabilities: signature.uploadS3OnlyProbabilities, generateFullRun: generateFullRun)
     }
 
     func downloadElevation(application: Application, domain: BomDomain, server: String, run: Timestamp) async throws {
@@ -170,7 +170,7 @@ struct DownloadBomCommand: AsyncCommand {
             }
         }
         await curl.printStatistics()
-        let handles = try await writer.finalise(completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
+        let handles = try await writer.finalise(application: application, completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
         Process.alarm(seconds: 0)
         return handles
     }
@@ -277,7 +277,8 @@ struct DownloadBomCommand: AsyncCommand {
                 let (((conv_snow, ls_snow), (ttl_cld, precipitation)), ((conv_rain, wndgust10m), visibility)) = arg
                 let timestamp = conv_snow.0
                 let snow = zip(conv_snow.1, ls_snow.1).map(+)
-                let weather_code = WeatherCode.calculate(cloudcover: ttl_cld.1.map { $0 * 100 }, precipitation: precipitation.1, convectivePrecipitation: conv_rain.1, snowfallCentimeters: snow.map { $0 * 0.7 }, gusts: wndgust10m.1, cape: nil, liftedIndex: nil, visibilityMeters: visibility.1, categoricalFreezingRain: nil, modelDtSeconds: domain.dtSeconds)
+                // TODO fix latitude if BOM is available again
+                let weather_code = WeatherCode.calculate(cloudcover: ttl_cld.1.map { $0 * 100 }, precipitation: precipitation.1, convectivePrecipitation: conv_rain.1, snowfallCentimeters: snow.map { $0 * 0.7 }, gusts: wndgust10m.1, cape: nil, liftedIndex: nil, convectiveInhibition: nil, pblHeight: nil, visibilityMeters: visibility.1, categoricalFreezingRain: nil, modelDtSeconds: domain.dtSeconds, latitude: 45)
                 try await writer.writeBom(time: timestamp, member: member, variable: BomVariable.snowfall_water_equivalent, data: snow)
                 try await writer.writeBom(time: timestamp, member: member, variable: BomVariable.weather_code, data: weather_code)
             }
@@ -310,7 +311,7 @@ struct DownloadBomCommand: AsyncCommand {
             }
         }
         await curl.printStatistics()
-        let handles = try await writer.finalise(completed: true, validTimes: nil, uploadS3Bucket: nil) + writerProbabilities.finalise(completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
+        let handles = try await writer.finalise(application: application, completed: true, validTimes: nil, uploadS3Bucket: nil) + writerProbabilities.finalise(application: application, completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
         Process.alarm(seconds: 0)
         return handles
     }
@@ -405,7 +406,8 @@ struct DownloadBomCommand: AsyncCommand {
             let (((conv_snow, ls_snow), (ttl_cld, precipitation)), ((conv_rain, wndgust10m), (cld_phys_thunder_p, visibility))) = arg
             let timestamp = conv_snow.0
             let snow = zip(conv_snow.1, ls_snow.1).map(+)
-            let weather_code = WeatherCode.calculate(cloudcover: ttl_cld.1.map { $0 * 100 }, precipitation: precipitation.1, convectivePrecipitation: conv_rain.1, snowfallCentimeters: snow.map { $0 * 0.7 }, gusts: wndgust10m.1, cape: cld_phys_thunder_p.1.map({ $0 * 3 }), liftedIndex: nil, visibilityMeters: visibility.1, categoricalFreezingRain: nil, modelDtSeconds: domain.dtSeconds)
+            // TODO fix latitude if BOM is available again
+            let weather_code = WeatherCode.calculate(cloudcover: ttl_cld.1.map { $0 * 100 }, precipitation: precipitation.1, convectivePrecipitation: conv_rain.1, snowfallCentimeters: snow.map { $0 * 0.7 }, gusts: wndgust10m.1, cape: cld_phys_thunder_p.1.map({ $0 * 3 }), liftedIndex: nil, convectiveInhibition: nil, pblHeight: nil, visibilityMeters: visibility.1, categoricalFreezingRain: nil, modelDtSeconds: domain.dtSeconds, latitude: 45)
             try await writer.writeBom(time: timestamp, member: 0, variable: BomVariable.snowfall_water_equivalent, data: snow)
             try await writer.writeBom(time: timestamp, member: 0, variable: BomVariable.weather_code, data: weather_code)
         }
@@ -422,7 +424,7 @@ struct DownloadBomCommand: AsyncCommand {
             try await writer.writeBom(time: timestamp, member: 0, variable: .wind_direction_10m, data: direction)
         }
         await curl.printStatistics()
-        let handles = try await writer.finalise(completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
+        let handles = try await writer.finalise(application: application, completed: true, validTimes: nil, uploadS3Bucket: uploadS3Bucket)
         Process.alarm(seconds: 0)
         return handles
     }

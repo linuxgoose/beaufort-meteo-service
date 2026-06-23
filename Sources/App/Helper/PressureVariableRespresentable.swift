@@ -63,11 +63,17 @@ where RawValue == String, Variable.RawValue == String {
 
     var variable: Variable { get }
     var level: Int { get }
+    
+    static func valid(level: Int) -> Bool
 
     init(variable: Variable, level: Int)
 }
 
 extension HeightVariableRespresentable {
+    static func valid(level: Int) -> Bool {
+        return true
+    }
+    
     init?(rawValue: String) {
         guard let pos = rawValue.lastIndex(of: "_"),
             let posEnd = rawValue[pos..<rawValue.endIndex].range(of: "m")
@@ -82,6 +88,9 @@ extension HeightVariableRespresentable {
         let start = rawValue.index(after: pos)
         let levelString = rawValue[start..<posEnd.lowerBound]
         guard let level = Int(levelString) else {
+            return nil
+        }
+        guard Self.valid(level: level) else {
             return nil
         }
         self.init(variable: variable, level: level)
@@ -414,6 +423,7 @@ where Variable: FlatBuffersVariable {
             aggregation: isSpread ? .spread : f.aggregation,
             probability: f.probability,
             altitude: f.altitude,
+            pressureLevel: f.pressureLevel,
             depth: f.depth,
             depthTo: f.depthTo,
             previousDay: f.previousDay

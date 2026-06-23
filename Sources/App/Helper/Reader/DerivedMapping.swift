@@ -17,7 +17,7 @@ indirect enum DerivedMapping<Variable>: GenericVariableMixable {
     case three(RawOrMapped, RawOrMapped, RawOrMapped, (DataAndUnit, DataAndUnit, DataAndUnit, TimerangeDtAndSettings) -> (DataAndUnit))
     case four(RawOrMapped, RawOrMapped, RawOrMapped, RawOrMapped, (DataAndUnit, DataAndUnit, DataAndUnit, DataAndUnit, TimerangeDtAndSettings) -> (DataAndUnit))
     
-    case weatherCode(cloudcover: RawOrMapped, precipitation: Variable, convectivePrecipitation: Variable?, snowfallCentimeters: RawOrMapped, gusts: Variable?, cape: Variable?, liftedIndex: Variable?, visibilityMeters: Variable?, categoricalFreezingRain: Variable?)
+    case weatherCode(cloudcover: RawOrMapped, precipitation: Variable, convectivePrecipitation: Variable?, snowfallCentimeters: RawOrMapped, gusts: Variable?, cape: Variable?, liftedIndex: Variable?, convectiveInhibition: Variable?, boundaryLayerHeight: Variable?, visibilityMeters: Variable?, categoricalFreezingRain: Variable?)
     
     init?(rawValue: String) {
         fatalError("DerivedMapping must not be used via string initializer")
@@ -25,6 +25,24 @@ indirect enum DerivedMapping<Variable>: GenericVariableMixable {
     
     var rawValue: String {
         fatalError("DerivedMapping must not be used via string initializer")
+    }
+    
+    
+    static func direct(_ variable: Variable?) -> Self? {
+        guard let variable else {
+            return nil
+        }
+        return .direct(variable)
+    }
+    
+    static func windSpeed(speed: Variable?, levelFrom: Float, levelTo: Float) -> Self? {
+        guard let speed else {
+            return nil
+        }
+        let factor = Meteorology.scaleWindFactor(from: levelFrom, to: levelTo)
+        return .one(.raw(speed), {speed, _ in
+            return DataAndUnit(speed.data.map{$0*factor}, .metrePerSecond)
+        })
     }
     
     static func windSpeed(u: Variable?, v: Variable?) -> Self? {
@@ -183,7 +201,7 @@ extension GenericDeriverProtocol {
             let c = try await get(mapping: c, time: time)
             let d = try await get(mapping: d, time: time)
             return fn(a, b, c, d, time)
-        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
+        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, convectiveInhibition: let convectiveInhibition, boundaryLayerHeight: let boundaryLayerHeight, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
             
             let cloudcover = try await get(mapping: cloudcover, time: time)
             let snowfall = try await get(mapping: snowfallCentimeters, time: time)
@@ -197,9 +215,12 @@ extension GenericDeriverProtocol {
                 gusts: try await get(variable: gusts, time: time)?.data,
                 cape: try await get(variable: cape, time: time)?.data,
                 liftedIndex: try await get(variable: liftedIndex, time: time)?.data,
+                convectiveInhibition: try await get(variable: convectiveInhibition, time: time)?.data,
+                pblHeight: try await get(variable: boundaryLayerHeight, time: time)?.data,
                 visibilityMeters: try await get(variable: visibilityMeters, time: time)?.data,
                 categoricalFreezingRain: try await get(variable: categoricalFreezingRain, time: time)?.data,
-                modelDtSeconds: time.dtSeconds), .wmoCode
+                modelDtSeconds: time.dtSeconds,
+                latitude: reader.modelLat), .wmoCode
             )
         }
     }
@@ -242,7 +263,7 @@ extension GenericDeriverProtocol {
             try await prefetchData(mapping: b, time: time)
             try await prefetchData(mapping: c, time: time)
             try await prefetchData(mapping: d, time: time)
-        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
+        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, convectiveInhibition: let convectiveInhibition, boundaryLayerHeight: let boundaryLayerHeight, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
             try await prefetchData(mapping: cloudcover, time: time)
             try await prefetchData(mapping: snowfallCentimeters, time: time)
             try await prefetchData(variable: precipitation, time: time)
@@ -250,6 +271,8 @@ extension GenericDeriverProtocol {
             try await prefetchData(variable: gusts, time: time)
             try await prefetchData(variable: cape, time: time)
             try await prefetchData(variable: liftedIndex, time: time)
+            try await prefetchData(variable: convectiveInhibition, time: time)
+            try await prefetchData(variable: boundaryLayerHeight, time: time)
             try await prefetchData(variable: visibilityMeters, time: time)
             try await prefetchData(variable: categoricalFreezingRain, time: time)
         }
@@ -357,7 +380,7 @@ extension GenericDeriverOptionalProtocol {
                 return nil
             }
             return fn(a, b, c, d, time)
-        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
+        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, convectiveInhibition: let convectiveInhibition, boundaryLayerHeight: let boundaryLayerHeight, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
             
             guard
                 let cloudcover = try await get(mapping: cloudcover, time: time),
@@ -374,9 +397,12 @@ extension GenericDeriverOptionalProtocol {
                 gusts: try await get(variable: gusts, time: time)?.data,
                 cape: try await get(variable: cape, time: time)?.data,
                 liftedIndex: try await get(variable: liftedIndex, time: time)?.data,
+                convectiveInhibition: try await get(variable: convectiveInhibition, time: time)?.data,
+                pblHeight: try await get(variable: boundaryLayerHeight, time: time)?.data,
                 visibilityMeters: try await get(variable: visibilityMeters, time: time)?.data,
                 categoricalFreezingRain: try await get(variable: categoricalFreezingRain, time: time)?.data,
-                modelDtSeconds: time.dtSeconds), .wmoCode
+                modelDtSeconds: time.dtSeconds,
+                latitude: reader.modelLat), .wmoCode
             )
         }
     }
@@ -422,7 +448,7 @@ extension GenericDeriverOptionalProtocol {
             let c = try await prefetchData(mapping: c, time: time)
             let d = try await prefetchData(mapping: d, time: time)
             return a && b && c && d
-        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
+        case .weatherCode(cloudcover: let cloudcover, precipitation: let precipitation, convectivePrecipitation: let convectivePrecipitation, snowfallCentimeters: let snowfallCentimeters, gusts: let gusts, cape: let cape, liftedIndex: let liftedIndex, convectiveInhibition: let convectiveInhibition, boundaryLayerHeight: let boundaryLayerHeight, visibilityMeters: let visibilityMeters, categoricalFreezingRain: let categoricalFreezingRain):
             let a = try await prefetchData(mapping: cloudcover, time: time)
             let b = try await prefetchData(mapping: snowfallCentimeters, time: time)
             let c = try await prefetchData(variable: precipitation, time: time)
@@ -430,6 +456,8 @@ extension GenericDeriverOptionalProtocol {
             let _ = try await prefetchData(variable: gusts, time: time)
             let _ = try await prefetchData(variable: cape, time: time)
             let _ = try await prefetchData(variable: liftedIndex, time: time)
+            let _ = try await prefetchData(variable: convectiveInhibition, time: time)
+            let _ = try await prefetchData(variable: boundaryLayerHeight, time: time)
             let _ = try await prefetchData(variable: visibilityMeters, time: time)
             let _ = try await prefetchData(variable: categoricalFreezingRain, time: time)
             return a && b && c
