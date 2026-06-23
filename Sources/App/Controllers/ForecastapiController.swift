@@ -935,9 +935,9 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
         func getReaders(lat: Float, lon: Float, elevation: Float, mode: GridSelectionMode, options: GenericReaderOptions, biasCorrection: Bool, include15Min: Bool) async throws -> (hourly: (any GenericReaderOptionalProtocol<ForecastVariable>)?, daily: (any GenericReaderOptionalProtocol<ForecastVariableDaily>)?, weekly: (any GenericReaderOptionalProtocol<ForecastVariableWeekly>)?, monthly: (any GenericReaderOptionalProtocol<ForecastVariableMonthly>)?)? {
             switch self {
             case .single(let domain, let variable):
-                return try await domain.makeGenericHourlyDaily(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                return try await domain.makeGenericHourlyDaily(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options, throwOnMissingLocation: false)
             case .singleWithPrecipitationProbability(let domain, let variable, precipitationProb: let precipitationProb):
-                guard let reader = try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options) else {
+                guard let reader = try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options, throwOnMissingLocation: false) else {
                     return nil
                 }
                 let prob = try await precipitationProb.makeHourlyReader(variableType: ProbabilityVariable.self, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.asOptionalReader
@@ -947,7 +947,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 let readers = try await domains.asyncCompactMap { d in
                     let domain: any GenericDomain = d.0
                     let variable: any GenericVariable.Type = d.1
-                    return try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                    return try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options, throwOnMissingLocation: false)
                 }
                 let prob = try await precipitationProb.makeHourlyReader(variableType: ProbabilityVariable.self, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)?.asOptionalReader
                 let hourly = GenericReaderMultiSameType<ForecastVariable>(reader: readers + [prob].compactMap({$0}))
@@ -956,7 +956,7 @@ enum MultiDomains: String, RawRepresentableString, CaseIterable, Sendable {
                 let readers = try await domains.asyncCompactMap { d in
                     let domain: any GenericDomain = d.0
                     let variable: any GenericVariable.Type = d.1
-                    return try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options)
+                    return try await domain.makeDerivedHourly(variableType: variable, lat: lat, lon: lon, elevation: elevation, mode: mode, options: options, throwOnMissingLocation: false)
                 }
                 let hourly = GenericReaderMultiSameType<ForecastVariable>(reader: readers)
                 return (hourly, hourly.makeDailyAggregator(allowMinMaxTwoAggregations: false), nil, nil)
