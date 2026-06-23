@@ -419,20 +419,20 @@ struct ApiQueryParameter: Content, ApiUnitsSelectable {
         // If a single run is selected, start time-range from run
         if let run {
             let current = run.toTimestamp()
-            let daily = Self.forecastTimeRange2(currentTime: current, utcOffset: utcOffset, pastSteps: 0, forecastSteps: forecast_days ?? forecastDaysDefault, initialStep: 0, dtSeconds: 86400)
+            let daily = Self.forecastTimeRange2(currentTime: current, utcOffset: 0, pastSteps: 0, forecastSteps: forecast_days ?? forecastDaysDefault, initialStep: 0, dtSeconds: 86400)
 
             let defaultForecastHours = (forecast_days ?? forecastDaysDefault)*24
-            let hourly = Self.forecastTimeRange2(currentTime: current, utcOffset: utcOffset, pastSteps: 0, forecastSteps: forecast_hours ?? defaultForecastHours, initialStep: run.hour, dtSeconds: 3600)
+            let hourly = Self.forecastTimeRange2(currentTime: current, utcOffset: 0, pastSteps: 0, forecastSteps: forecast_hours ?? defaultForecastHours, initialStep: run.hour, dtSeconds: 3600)
 
             let defaultForecastMinutely15 = (forecast_hours ?? defaultForecastHours)*4
-            let minutely_15 = Self.forecastTimeRange2(currentTime: current, utcOffset: utcOffset, pastSteps: 0, forecastSteps: forecast_minutely_15 ?? defaultForecastMinutely15, initialStep: run.hour*4, dtSeconds: 900)
+            let minutely_15 = Self.forecastTimeRange2(currentTime: current, utcOffset: 0, pastSteps: 0, forecastSteps: forecast_minutely_15 ?? defaultForecastMinutely15, initialStep: run.hour*4, dtSeconds: 900)
 
             return ForecastApiTimeRange(
-                dailyDisplay: daily.add(-1 * actualUtcOffset),
-                dailyRead: daily.add(-1 * utcOffset),
-                hourlyDisplay: hourly.add(-1 * actualUtcOffset),
-                hourlyRead: hourly.add(-1 * utcOffset),
-                minutely15: minutely_15.add(-1 * actualUtcOffset)
+                dailyDisplay: daily,
+                dailyRead: daily,
+                hourlyDisplay: hourly,
+                hourlyRead: hourly,
+                minutely15: minutely_15
             )
         }
 
@@ -449,10 +449,10 @@ struct ApiQueryParameter: Content, ApiUnitsSelectable {
                 throw ForecastApiError.dateOutOfRange(parameter: "end_date", allowed: allowedRange)
             }
             guard allowedRange.contains(hourly.range.lowerBound) else {
-                throw ForecastApiError.dateOutOfRange(parameter: "start_hourly", allowed: allowedRange)
+                throw ForecastApiError.dateOutOfRange(parameter: "start_hour", allowed: allowedRange)
             }
             guard allowedRange.contains(hourly.range.upperBound.add(-1 * hourly.dtSeconds)) else {
-                throw ForecastApiError.dateOutOfRange(parameter: "end_hourly", allowed: allowedRange)
+                throw ForecastApiError.dateOutOfRange(parameter: "end_hour", allowed: allowedRange)
             }
             guard allowedRange.contains(minutely_15.range.lowerBound) else {
                 throw ForecastApiError.dateOutOfRange(parameter: "start_minutely_15", allowed: allowedRange)
@@ -554,6 +554,7 @@ enum ForecastApiError: Error {
     case latitudeAndLongitudeMaximum(max: Int)
     case latitudeAndLongitudeCountMustBeTheSame
     case coordinatesAndTimezoneCountMustBeTheSame
+    case modelRunUnavailable(model: DomainRegistry, run: Timestamp)
     case locationIdCountMustBeTheSame
     case startAndEndDateCountMustBeTheSame
     case coordinatesAndStartEndDatesCountMustBeTheSame
@@ -617,6 +618,8 @@ extension ForecastApiError: AbortError {
             return "Parameter '\(name)' is required"
         case .parameterMustNotBeSet(let name):
             return "Parameter '\(name)' must not be set"
+        case .modelRunUnavailable(model: let model, run: let run):
+            return "The requested model run is not available. Model: \(model), run: \(run.iso8601_YYYY_MM_dd_HH_mmZ)"
         }
     }
 }
@@ -740,6 +743,9 @@ struct TimezoneWithOffset {
 
 extension TimeZone {
     static func initWithFallback(_ identifier: String) throws -> TimeZone {
+        if let tz = TimeZone(identifier: identifier) {
+            return tz
+        }
         // Some older timezone databases may still use the old name for Kyiv
         if identifier == "Europe/Kyiv", let tz = TimeZone(identifier: "Europe/Kiev") {
             return tz
@@ -754,12 +760,9 @@ extension TimeZone {
             return tz
         }
 
-        guard let tz = TimeZone(identifier: identifier) else {
-            if identifier == "America/Ciudad_Juarez", let tz = TimeZone(identifier: "America/Mexico_City") {
-                return tz
-            }
-            throw ForecastApiError.invalidTimezone
+        if identifier == "America/Ciudad_Juarez", let tz = TimeZone(identifier: "America/Mexico_City") {
+            return tz
         }
-        return tz
+        throw ForecastApiError.invalidTimezone
     }
 }

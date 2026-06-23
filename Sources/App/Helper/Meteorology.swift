@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import CHelper
 
 enum Meteorology {
@@ -47,6 +47,17 @@ enum Meteorology {
             let factor = powf(1 - (0.0065 * elevation) / t0, -5.25578129287)
             return p / factor
         }
+    }
+    
+    /// Calculate surface pressure, corrected by temperature.
+    static func surfacePressure(temperature: Float, pressure: Float, elevation: Float) -> Float {
+        let elevation = elevation.isNaN ? 0 : elevation
+        /// Sea level temperature in kelvin
+        let t0 = (temperature + 273.15 + 0.0065 * elevation)
+        // https://physics.stackexchange.com/questions/14678/pressure-at-a-given-altitude
+        // exponent = (g*M/r*L) = (9.80665 * 0.0289644) / (8.31447 * 0.0065)
+        let factor = powf(1 - (0.0065 * elevation) / t0, -5.25578129287)
+        return pressure / factor
     }
     
     /// Estimate elevation from sea and surface level pressure
@@ -108,6 +119,47 @@ enum Meteorology {
         // exponent = (g*M/r*L) = (9.80665 * 0.0289644) / (8.31447 * 0.0065)
         let factor = powf(1 - (0.0065 * elevation) / t0, -5.25578129287)
         return factor
+    }
+    
+    /// Critical relative humidity threshold for the Sundqvist et al. (1989) cloud cover scheme.
+    /// See https://www.ecmwf.int/sites/default/files/elibrary/2005/16958-parametrization-cloud-cover.pdf
+    /// https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2018MS001400  chapter 3.1
+    @inlinable static func relativeHumidityThreshold(pressureHPa: Float) -> Float {
+        let a1: Float = 0.7
+        let a2: Float = 0.9
+        let a3: Float = 4.0
+        let pressureSurface: Float = 1013.25
+        return a1 + (a2 - a1) * expf(1 - powf(pressureSurface / pressureHPa, a3))
+    }
+
+    /// Cloud cover for a single relative humidity value given a precomputed `rhCrit` threshold.
+    /// Keeping `rhCrit` as a caller-side constant lets the compiler inline and vectorise the
+    /// arithmetic without any transcendental calls in the hot loop.
+    @inlinable static func cloudCover(relativeHumidity rh: Float, rhCrit: Float) -> Float {
+        return max(1 - sqrtf(max(1 - rh / 100, 0) / (1 - rhCrit)), 0) * 100
+    }
+
+    /// Element-wise max cloud cover over a group of (rh array, rhCrit) pairs.
+    @inlinable static func cloudCoverFromRH(_ levels: [(rh: [Float], rhCrit: Float)]) -> [Float] {
+        guard let first = levels.first else { return [] }
+        var out = [Float]()
+        out.reserveCapacity(first.rh.count)
+        for i in first.rh.indices {
+            var maxCC: Float = 0
+            for (rh, rhCrit) in levels {
+                let cc = cloudCover(relativeHumidity: rh[i], rhCrit: rhCrit)
+                if cc > maxCC { maxCC = cc }
+            }
+            out.append(maxCC)
+        }
+        return out
+    }
+
+    /// Calculate upper level clouds from relative humidity using Sundqvist et al. (1989).
+    /// See https://www.ecmwf.int/sites/default/files/elibrary/2005/16958-parametrization-cloud-cover.pdf
+    /// https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2018MS001400  chapter 3.1
+    @inlinable public static func relativeHumidityToCloudCover(relativeHumidity rh: Float, pressureHPa: Float) -> Float {
+        return cloudCover(relativeHumidity: rh, rhCrit: relativeHumidityThreshold(pressureHPa: pressureHPa))
     }
     
     /// Estimate total cloudcover from low, mid and high cloud cover
@@ -294,18 +346,6 @@ enum Meteorology {
         }
     }
 
-    /// Calculate upper level clouds from relative humidity using Sundqvist et al. (1989):
-    /// See https://www.ecmwf.int/sites/default/files/elibrary/2005/16958-parametrization-cloud-cover.pdf
-    /// https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2018MS001400  chapter 3.1
-    @inlinable public static func relativeHumidityToCloudCover(relativeHumidity rh: Float, pressureHPa: Float) -> Float {
-        let a1: Float = 0.7
-        let a2: Float = 0.9
-        let a3: Float = 4.0
-        let pressureSurface: Float = 1013.25
-        let rhCrit = a1 + (a2 - a1) * expf(1 - powf(pressureSurface / pressureHPa, a3))
-        return max(1 - sqrtf(max(1 - rh / 100, 0) / (1 - rhCrit)), 0) * 100
-    }
-
     /// Approximate altitude in meters from pressure level in hPa
     @inlinable static func altitudeAboveSeaLevelMeters(pressureLevelHpA: Float) -> Float {
         return -1 / 2.25577 * 10e4 * (powf(pressureLevelHpA / 1013.25, 1 / 5.25588) - 1)
@@ -314,5 +354,29 @@ enum Meteorology {
     /// Approximate pressure level from altitude
     @inlinable static func pressureLevelHpA(altitudeAboveSeaLevelMeters: Float) -> Float {
         return 1013.25 * powf(1 - 2.25577 * 10e-6 * altitudeAboveSeaLevelMeters, 5.25588)
+    }
+
+    /// Calculate moist air density in kg/m³
+    /// Uses the partial pressure approach: ρ = ρ_dry + ρ_vapour
+    /// - Parameters:
+    ///   - temperature: Temperature in Celsius
+    ///   - relativeHumidity: Relative humidity in percent (0–100)
+    ///   - pressure: Surface pressure in hPa
+    /// - Returns: Air density in kg/m³
+    @inlinable public static func airDensity(temperature: Float, relativeHumidity: Float, pressure: Float) -> Float {
+        let T = temperature + 273.15  // °C -> K
+        let p = pressure * 100        // hPa -> Pa
+
+        // Saturation vapour pressure (Pa), same formula used elsewhere in this file
+        let esat = 6.105 * exp(17.27 * temperature / (237.7 + temperature)) * 100
+        // Actual vapour pressure (Pa)
+        let e = (relativeHumidity / 100) * esat
+        // Partial pressure of dry air (Pa)
+        let pd = p - e
+
+        let Rd: Float = 287.058  // J/(kg·K) specific gas constant for dry air
+        let Rv: Float = 461.495  // J/(kg·K) specific gas constant for water vapour
+
+        return (pd / (Rd * T)) + (e / (Rv * T))
     }
 }

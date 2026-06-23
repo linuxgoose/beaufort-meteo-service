@@ -203,6 +203,7 @@ public func configure(_ app: Application) throws {
     app.asyncCommands.use(JmaDownload(), as: "download-jma")
     app.asyncCommands.use(MetNoDownloader(), as: "download-metno")
     app.asyncCommands.use(GeoSphereDownloader(), as: "download-geosphere")
+    app.asyncCommands.use(ChmiDownload(), as: "download-chmi")
     app.asyncCommands.use(KmaDownload(), as: "download-kma")
     app.asyncCommands.use(GloFasDownloader(), as: "download-glofas")
     app.asyncCommands.use(GemDownload(), as: "download-gem")
@@ -216,6 +217,7 @@ public func configure(_ app: Application) throws {
     app.asyncCommands.use(ValidateOmFilesCommand(), as: "validate-om-files")
     app.asyncCommands.use(DownloadEcmwfSeasCommand(), as: "download-ecmwf-seas")
     app.asyncCommands.use(DwdSisDownloader(), as: "download-dwd-sis")
+    app.asyncCommands.use(DownloadWeatherNextCommand(), as: "download-weathernext")
 
     app.http.server.configuration.hostname = "0.0.0.0"
 
